@@ -23,12 +23,16 @@ static INIT: OnceLock<()> = OnceLock::new();
 /// Returns `AppError::Config` if `filter_directive` is not a valid
 /// `EnvFilter` expression.
 pub fn init(filter_directive: &str) -> AppResult<()> {
+    // Validate the filter eagerly so misconfiguration surfaces as a
+    // typed error on every call, not silently no-op'd after the first
+    // successful init. Otherwise a later call with a bad LOG_LEVEL
+    // (e.g. from a config reload) would return Ok(()).
+    let filter = EnvFilter::try_new(filter_directive)
+        .map_err(|e| AppError::Config(format!("invalid LOG_LEVEL '{filter_directive}': {e}")))?;
+
     if INIT.get().is_some() {
         return Ok(());
     }
-
-    let filter = EnvFilter::try_new(filter_directive)
-        .map_err(|e| AppError::Config(format!("invalid LOG_LEVEL '{filter_directive}': {e}")))?;
 
     let layer = fmt::layer()
         .with_target(true)

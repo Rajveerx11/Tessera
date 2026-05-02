@@ -5,5 +5,13 @@
 //! providers (Ollama, `OpenAI`, Anthropic, `OpenRouter`) are selected by a
 //! factory at runtime based on user configuration.
 //!
-//! Sub-modules added in Phase 2: `llm` (mod, ollama, openai, anthropic,
-//! openrouter), `embeddings` (mod, ollama).
+//! Sub-modules:
+//!
+//! - [`llm`] — chat-style generation (Phase 2). Trait + four concrete
+//!   providers + typed errors.
+//! - [`embeddings`] — vector embeddings (Phase 2). Trait + Ollama impl.
+//! - [`factory`] — runtime provider selection (Phase 2).
+
+pub mod embeddings;
+pub mod factory;
+pub mod llm;

@@ -26,10 +26,11 @@ tree-sitter-javascript = "0.21"
 tree-sitter-python = "0.21"
 reqwest = { version = "0.12", default-features = false, features = ["json", "stream", "rustls-tls"] }
 tracing = "0.1"
-tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
 thiserror = "1"
 anyhow = "1"
 async-trait = "0.1"
+async-stream = "0.3"
 uuid = { version = "1", features = ["v4", "serde"] }
 sha2 = "0.10"
 futures = "0.3"
@@ -37,6 +38,8 @@ chrono = { version = "0.4", features = ["serde"] }
 
 [dev-dependencies]
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "test-util"] }
+mockito = "1"
+insta = { version = "1", features = ["yaml"] }
 
 [profile.release]
 codegen-units = 1
