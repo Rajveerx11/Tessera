@@ -20,14 +20,16 @@ pub mod utils;
 pub mod workers;
 
 /// Entry point invoked from `main.rs`. Loads configuration, initializes
-/// structured logging, then builds and runs the Tauri application.
+/// structured logging, builds the database pool, then starts the Tauri
+/// application with both stashed in the managed state container.
 ///
 /// # Panics
 ///
-/// Panics if configuration loading, logging init, or the Tauri runtime
-/// fails to start. This is acceptable per `rules.md` §2.2 (panic only on
-/// invariant violations — a failed startup is unrecoverable; the panic
-/// message is the only useful signal because logging may not yet be live).
+/// Panics if configuration loading, logging init, database init, or the
+/// Tauri runtime fails to start. This is acceptable per `rules.md` §2.2
+/// (panic only on invariant violations — a failed startup is unrecoverable
+/// and the panic message is the only useful signal because higher layers
+/// may not yet be live).
 pub fn run() {
     let cfg = config::AppConfig::from_env().expect("failed to load configuration");
     utils::telemetry::init(&cfg.log_level).expect("failed to initialize tracing");
@@ -38,8 +40,19 @@ pub fn run() {
         "starting Testing IDE backend"
     );
 
+    // Bootstrap the DB synchronously on a single-thread runtime, then drop
+    // it. Tauri commands run on Tauri's own tokio runtime — we do not need
+    // to keep a second runtime alive for the lifetime of the app.
+    let pool = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .expect("failed to build bootstrap runtime")
+        .block_on(db::init_pool(&cfg.database_url()))
+        .expect("failed to initialize database");
+
     tauri::Builder::default()
         .manage(cfg)
+        .manage(pool)
         .run(tauri::generate_context!())
         .expect("failed to start Tauri application");
 }
