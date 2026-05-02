@@ -23,12 +23,14 @@ use async_trait::async_trait;
 use futures::Stream;
 
 pub mod error;
+pub mod openai_compat;
 pub mod types;
 
 pub mod ollama;
+pub mod openai;
+pub mod openrouter;
 
-// Concrete providers added in subsequent commits:
-//   openai/openrouter -> anthropic.
+// Concrete provider added in the next commit: anthropic.
 
 pub use error::LlmError;
 pub use types::{
