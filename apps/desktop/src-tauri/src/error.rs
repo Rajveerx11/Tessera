@@ -8,6 +8,8 @@ use std::io;
 
 use thiserror::Error;
 
+use crate::providers::llm::LlmError;
+
 /// Top-level error type for all backend operations.
 ///
 /// Variants stay coarse on purpose — they map onto IPC-facing error codes,
@@ -39,9 +41,10 @@ pub enum AppError {
     #[error("serialization error: {0}")]
     Serde(#[from] serde_json::Error),
 
-    /// LLM provider returned an error or invalid response.
-    #[error("llm provider error: {0}")]
-    LlmProvider(String),
+    /// LLM provider returned an error or invalid response. Bridges from
+    /// `providers::llm::LlmError` (rules.md §5.3 — typed errors propagate).
+    #[error("llm error: {0}")]
+    Llm(#[from] LlmError),
 
     /// Requested resource was not found.
     #[error("not found: {0}")]
@@ -68,6 +71,10 @@ impl AppError {
     /// Stable string code for IPC consumers (frontend) and logs. Never
     /// surfaces internal detail; safe for user-facing display per
     /// `rules.md` §5.3.
+    ///
+    /// `Llm` variants delegate to the inner `LlmError::code()` so the
+    /// frontend sees the same fine-grained codes (e.g.
+    /// `LLM_RATE_LIMITED`) regardless of how deep the error originated.
     #[must_use]
     pub fn code(&self) -> &'static str {
         match self {
@@ -77,7 +84,7 @@ impl AppError {
             Self::Io(_) => "IO_ERROR",
             Self::Http(_) => "HTTP_ERROR",
             Self::Serde(_) => "SERIALIZATION_ERROR",
-            Self::LlmProvider(_) => "LLM_PROVIDER_ERROR",
+            Self::Llm(inner) => inner.code(),
             Self::NotFound(_) => "NOT_FOUND",
             Self::InvalidInput(_) => "INVALID_INPUT",
             Self::LimitExceeded(_) => "LIMIT_EXCEEDED",
@@ -97,7 +104,6 @@ mod tests {
     fn code_is_stable_for_each_variant() {
         let cases = [
             (AppError::Config("x".into()), "CONFIG_ERROR"),
-            (AppError::LlmProvider("x".into()), "LLM_PROVIDER_ERROR"),
             (AppError::NotFound("x".into()), "NOT_FOUND"),
             (AppError::InvalidInput("x".into()), "INVALID_INPUT"),
             (AppError::LimitExceeded("x".into()), "LIMIT_EXCEEDED"),
@@ -105,6 +111,16 @@ mod tests {
         for (err, expected) in cases {
             assert_eq!(err.code(), expected);
         }
+    }
+
+    #[test]
+    fn llm_variant_delegates_code_to_inner_error() {
+        let inner = LlmError::AuthFailed {
+            provider: "openai",
+            message: "bad key".into(),
+        };
+        let app_err: AppError = inner.into();
+        assert_eq!(app_err.code(), "LLM_AUTH_FAILED");
     }
 
     #[test]
