@@ -1,0 +1,79 @@
+# cargo-audit ignore-list with triage notes.
+#
+# Per rules.md §11 (audit dependencies; high/critical block merge).
+# Each advisory below has been triaged and accepted with explicit
+# justification. Re-review every quarter or whenever an upgrade path
+# opens upstream.
+#
+# Reproduce locally with:
+#   cargo audit \
+#     $(awk '/^"RUSTSEC/{gsub(/[",]/,""); print "--ignore "$1}' audit.toml)
+#
+# (cargo-audit 0.22 does not yet read this file directly; the IDs are
+#  passed through CI / pre-merge scripts. Documenting them here is
+#  the source of truth.)
+
+# ─── VULNERABILITIES ──────────────────────────────────────────────
+# Only triggered in dead or release-disabled code paths.
+
+# RUSTSEC-2025-0009 — ring 0.17.9 may panic in AES routines when
+# integer overflow checking is enabled.
+#
+# Triage: only triggers under explicit overflow checks. Our release
+# profile builds with overflow checks disabled (the default for
+# `[profile.release]`). The fix is a transitive bump
+# (0.17.9 → 0.17.14) but our locked dep tree (rustls 0.23.40 /
+# quinn-proto 0.11.14) keeps us pinned at 0.17.9. Lifting the lock
+# requires bumping rustls, which pulls breaking changes downstream
+# into reqwest 0.13.
+# Action: revisit when upgrading reqwest → 0.13 (Phase 3 / V2).
+"RUSTSEC-2025-0009"
+
+# RUSTSEC-2023-0071 — rsa 0.9.10 Marvin Attack (timing sidechannel).
+#
+# Triage: pulled in transitively via sqlx-mysql. We use SQLite only;
+# the MySQL TLS / RSA code path is never executed. Dead code from
+# our perspective. No fixed upgrade is available upstream as of
+# 2026-05; rsa crate is awaiting a constant-time fix.
+# Action: revisit when sqlx 0.9.x stabilizes — sqlx-macros-core
+# split is being addressed there (won't drag in mysql backend).
+"RUSTSEC-2023-0071"
+
+# RUSTSEC-2024-0363 — sqlx 0.8.0 binary-protocol misinterpretation
+# via truncating / overflowing casts.
+#
+# Triage: affected parsers live in sqlx-postgres and sqlx-mysql.
+# We use SQLite only. The SQLite driver decodes a different on-disk
+# format and is not in the affected code path. The fix (>= 0.8.1)
+# is in our SemVer range but Cargo's lock-file pins 0.8.0; bumping
+# requires updating tree-sitter-* crates which tie cc to ~1.0.90 vs
+# sqlx 0.8.6's cc ^1.1.6.
+# Action: bump in Phase 3 alongside the planned tree-sitter
+# ecosystem update for AST pipeline work.
+"RUSTSEC-2024-0363"
+
+# ─── UNMAINTAINED ──────────────────────────────────────────────────
+# Linux GTK3 bindings via Tauri 2.11. Tauri team is migrating to
+# GTK4; pin holds in 2.x. We do not call any of these crates
+# directly — surface is whatever Tauri exposes.
+"RUSTSEC-2024-0411" # gdkwayland-sys
+"RUSTSEC-2024-0412" # gdk
+"RUSTSEC-2024-0413" # atk
+"RUSTSEC-2024-0414" # gdkx11-sys
+"RUSTSEC-2024-0415" # gtk
+"RUSTSEC-2024-0416" # atk-sys
+"RUSTSEC-2024-0417" # gdkx11
+"RUSTSEC-2024-0418" # gdk-sys
+"RUSTSEC-2024-0419" # gtk3-macros
+"RUSTSEC-2024-0420" # gtk-sys
+"RUSTSEC-2024-0429" # glib (unsoundness in VariantStrIter; Linux only)
+
+# Unmaintained transitive utilities pulled in via Tauri's
+# urlpattern + sqlx + tracing. None directly used by our code.
+"RUSTSEC-2024-0370" # proc-macro-error → tauri-macros, sqlx-macros-core
+"RUSTSEC-2024-0436" # paste → tauri-utils
+"RUSTSEC-2025-0075" # unic-char-range → urlpattern
+"RUSTSEC-2025-0080" # unic-common → urlpattern
+"RUSTSEC-2025-0081" # unic-char-property → urlpattern
+"RUSTSEC-2025-0098" # unic-ucd-version → urlpattern
+"RUSTSEC-2025-0100" # unic-ucd-ident → urlpattern
