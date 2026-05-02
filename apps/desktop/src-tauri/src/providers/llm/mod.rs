@@ -26,11 +26,10 @@ pub mod error;
 pub mod openai_compat;
 pub mod types;
 
+pub mod anthropic;
 pub mod ollama;
 pub mod openai;
 pub mod openrouter;
-
-// Concrete provider added in the next commit: anthropic.
 
 pub use error::LlmError;
 pub use types::{
