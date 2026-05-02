@@ -9,7 +9,8 @@
 //!
 //! - [`llm`] — chat-style generation (Phase 2). Trait + four concrete
 //!   providers + typed errors.
-//! - `embeddings` — vector embeddings (added later in Phase 2).
+//! - [`embeddings`] — vector embeddings (Phase 2). Trait + Ollama impl.
 //! - `factory` — runtime provider selection (added at the end of Phase 2).
 
+pub mod embeddings;
 pub mod llm;
