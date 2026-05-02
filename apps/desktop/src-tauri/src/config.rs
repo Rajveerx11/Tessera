@@ -5,7 +5,7 @@
 //! defaults so the app boots in a fresh checkout without an `.env` file.
 
 use std::env;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::str::FromStr;
 
 use crate::error::{AppError, AppResult};
@@ -13,7 +13,7 @@ use crate::error::{AppError, AppResult};
 /// Default Ollama base URL (OpenAI-compatible endpoint).
 pub const DEFAULT_OLLAMA_BASE_URL: &str = "http://localhost:11434";
 
-/// Default SQLite filename, resolved relative to the user data directory.
+/// Default `SQLite` filename, resolved relative to the user data directory.
 pub const DEFAULT_DB_FILENAME: &str = "testing-ide.db";
 
 /// Default tracing filter directive.
@@ -24,7 +24,7 @@ pub const DEFAULT_LOG_LEVEL: &str = "info";
 pub struct AppConfig {
     /// Base URL for the Ollama OpenAI-compatible API.
     pub ollama_base_url: String,
-    /// Absolute path to the SQLite database file.
+    /// Absolute path to the `SQLite` database file.
     pub db_path: PathBuf,
     /// `tracing_subscriber::EnvFilter` directive, e.g. `info` or
     /// `testing_ide_lib=debug,sqlx=warn`.
@@ -51,7 +51,7 @@ impl AppConfig {
         })
     }
 
-    /// SQLx-compatible connection string for the configured SQLite file.
+    /// `sqlx`-compatible connection string for the configured `SQLite` file.
     ///
     /// Uses `?mode=rwc` so the file is created on first launch. The path
     /// is converted to a forward-slash string for cross-platform sqlite
@@ -76,13 +76,13 @@ fn read_string(key: &str, default: &str) -> AppResult<String> {
     }
 }
 
-fn read_path(key: &str, default: &PathBuf) -> AppResult<PathBuf> {
+fn read_path(key: &str, default: &Path) -> AppResult<PathBuf> {
     match env::var(key) {
         Ok(value) if value.trim().is_empty() => Err(AppError::Config(format!(
             "environment variable {key} is set but empty"
         ))),
         Ok(value) => PathBuf::from_str(&value).map_err(|e| AppError::Config(e.to_string())),
-        Err(env::VarError::NotPresent) => Ok(default.clone()),
+        Err(env::VarError::NotPresent) => Ok(default.to_path_buf()),
         Err(env::VarError::NotUnicode(_)) => Err(AppError::Config(format!(
             "environment variable {key} is not valid unicode"
         ))),

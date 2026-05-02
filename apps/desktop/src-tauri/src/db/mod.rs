@@ -1,6 +1,6 @@
 //! Database connection pool and migration runner.
 //!
-//! SQLite via sqlx 0.8. The pool is created with `create_if_missing(true)`
+//! `SQLite` via sqlx 0.8. The pool is created with `create_if_missing(true)`
 //! so a fresh install boots without manual file creation. Migrations live
 //! in `migrations/` and run on every startup via the `sqlx::migrate!` macro
 //! — sqlx tracks applied versions in the `_sqlx_migrations` table, so this
@@ -24,10 +24,10 @@ use crate::error::{AppError, AppResult};
 
 /// Default pool size. Desktop workload is low-concurrency (one user, a few
 /// background workers); five connections covers analysis + generation +
-/// IPC commands without thrashing SQLite's writer lock.
+/// IPC commands without thrashing `SQLite`'s writer lock.
 pub const DEFAULT_MAX_CONNECTIONS: u32 = 5;
 
-/// Build a SQLite pool from the configured database URL, creating the file
+/// Build a `SQLite` pool from the configured database URL, creating the file
 /// if necessary and applying all pending migrations.
 ///
 /// Sets pragmas for desktop usage:
@@ -75,10 +75,10 @@ pub async fn init_pool_at(path: &Path) -> AppResult<SqlitePool> {
     init_pool(&url).await
 }
 
-/// Strip query-string fragments from a SQLite URL before logging. SQLite
-/// connection strings do not normally carry secrets, but logging only the
-/// path keeps logs predictable across env-supplied auth params (rules.md
-/// §5.4 — never log secrets).
+/// Strip query-string fragments from a `SQLite` URL before logging.
+/// `SQLite` connection strings do not normally carry secrets, but logging
+/// only the path keeps logs predictable across env-supplied auth params
+/// (rules.md §5.4 — never log secrets).
 fn redact_url(url: &str) -> String {
     url.split('?').next().unwrap_or(url).to_string()
 }
