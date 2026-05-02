@@ -8,6 +8,15 @@
 //! `commands` (Tauri IPC, replaces routes) → `services` → `repositories` → `db`.
 //! Cross-cutting: `providers` (LLM/embeddings), `workers`, `prompts`, `utils`.
 
+pub mod commands;
+pub mod db;
+pub mod prompts;
+pub mod providers;
+pub mod repositories;
+pub mod services;
+pub mod utils;
+pub mod workers;
+
 /// Entry point invoked from `main.rs`. Builds and runs the Tauri application.
 ///
 /// # Panics
