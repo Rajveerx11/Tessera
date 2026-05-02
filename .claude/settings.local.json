@@ -24,7 +24,10 @@
       "PowerShell($env:Path = \"$env:USERPROFILE\\\\.cargo\\\\bin;$env:Path\"; Set-Location \"C:\\\\Testing IDE\\\\apps\\\\desktop\\\\src-tauri\"; cargo test; \"exit=$LASTEXITCODE\")",
       "Bash(git -C \"c:/Testing IDE\" diff --stat rules.md)",
       "Bash(gh auth *)",
-      "Bash(gh issue create --repo Rajveerx11/Testing-IDE --title 'ADR backlog: 0001 \\(embeddings\\) — opened, 0002 \\(vec0 migration\\) + 0003 \\(LlmProvider\\) pending' --body ' *)"
+      "Bash(gh issue create --repo Rajveerx11/Testing-IDE --title 'ADR backlog: 0001 \\(embeddings\\) — opened, 0002 \\(vec0 migration\\) + 0003 \\(LlmProvider\\) pending' --body ' *)",
+      "PowerShell($env:Path = \"$env:USERPROFILE\\\\.cargo\\\\bin;$env:Path\"; Set-Location \"C:\\\\Testing IDE\\\\apps\\\\desktop\\\\src-tauri\"; cargo fmt --check; \"fmt_exit=$LASTEXITCODE\"; cargo clippy --all-targets -- -D warnings 2>&1 | Select-Object -Last 5; \"clippy_exit=$LASTEXITCODE\")",
+      "PowerShell($env:Path = \"$env:USERPROFILE\\\\.cargo\\\\bin;$env:Path\"; Set-Location \"C:\\\\Testing IDE\\\\apps\\\\desktop\\\\src-tauri\"; cargo test --no-fail-fast 2>&1 | Select-String -Pattern \"test result|running|FAILED|passed\" | Select-Object -Last 30; \"test_exit=$LASTEXITCODE\")",
+      "Bash(curl -sS --max-time 3 http://localhost:11434/api/tags)"
     ]
   }
 }
