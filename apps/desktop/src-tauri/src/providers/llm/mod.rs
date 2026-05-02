@@ -25,8 +25,10 @@ use futures::Stream;
 pub mod error;
 pub mod types;
 
-// Concrete providers are added in subsequent commits:
-//   ollama (this commit) -> openai/openrouter -> anthropic.
+pub mod ollama;
+
+// Concrete providers added in subsequent commits:
+//   openai/openrouter -> anthropic.
 
 pub use error::LlmError;
 pub use types::{
