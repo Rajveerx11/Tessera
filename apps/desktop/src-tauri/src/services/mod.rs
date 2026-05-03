@@ -11,9 +11,11 @@
 //!   `.gitignore` filtering, extension allow-list, and size caps.
 //! - [`ast_service`] (Phase 3) — Tree-sitter parsing (JS / TS / Python)
 //!   into typed declarations, imports, and exports.
+//! - [`chunking_service`] (Phase 3) — semantic chunking at function /
+//!   class boundaries, ready for embedding.
 //!
-//! Future Phase 3 / 5 modules: `chunking_service`, `generation_service`,
-//! `context_service`.
+//! Future Phase 3 / 5 modules: `generation_service`, `context_service`.
 
 pub mod ast_service;
+pub mod chunking_service;
 pub mod file_discovery_service;
