@@ -18,6 +18,7 @@
 - [Tech stack](#tech-stack)
 - [Quick start](#quick-start)
 - [LLM provider configuration](#llm-provider-configuration)
+- [RAG pipeline](#rag-pipeline)
 - [Project structure](#project-structure)
 - [Engineering rules](#engineering-rules)
 - [Architecture decisions](#architecture-decisions)
@@ -73,13 +74,13 @@ This IDE bridges the gap with three guarantees:
 |-------|-------|--------|
 | 1 | Foundation: Tauri scaffold, layered structure, typed config + errors, SQLite + migrations | **Shipped** ([PR #2](https://github.com/Rajveerx11/Testing-IDE/pull/2)) |
 | 2 | LLM provider abstraction: Ollama / OpenAI / OpenRouter / Anthropic + Ollama embeddings + factory | **Shipped** ([PR #3](https://github.com/Rajveerx11/Testing-IDE/pull/3)) |
-| 3 | AST pipeline: file discovery, Tree-sitter parsing, semantic chunking, chunk repository | In progress |
+| 3 | AST pipeline: file discovery, Tree-sitter parsing, semantic chunking, chunk repository | **Shipped** ([PR #6](https://github.com/Rajveerx11/Testing-IDE/pull/6)) |
 | 4 | Versioned prompt templates with JSON-Schema function calling | Pending |
 | 5 | Generation service tying RAG + prompts + LLM | Pending |
 | 6 | Tauri IPC commands + AES-GCM API-key encryption | Pending |
 | 7 | Integration tests against Ollama, snapshot tests for prompts, CI workflow | Pending |
 
-**Tests**: 88 passing. **Clippy**: clean (`pedantic` enforced). **Audit**: 21 advisories triaged in `audit.toml`.
+**Tests**: 136 passing. **Clippy**: clean (`pedantic` enforced). **Audit**: 21 advisories triaged in `audit.toml`. **Release build**: green.
 
 ---
 
@@ -90,7 +91,7 @@ This IDE bridges the gap with three guarantees:
 | Shell | Tauri 2.0 (~3 MB binary, native filesystem access) |
 | Backend | Rust 1.77+ (Tokio async runtime, sqlx, reqwest with rustls TLS) |
 | Storage | SQLite 3 + `sqlite-vec` (embedded, no daemon, no setup) |
-| AST | `tree-sitter` (JS / TS / Python grammars; more in Phase 3+) |
+| AST | `tree-sitter` (JS / TS / Python grammars wired via `services/ast_service.rs`; more languages in Phase 3.5+) |
 | Frontend | React 19 + TypeScript + Vite + TailwindCSS v4 + shadcn/ui |
 | Editor | Monaco (VS Code parity for code viewing) |
 | Logging | `tracing` (pretty in dev, JSON in release) |
@@ -211,6 +212,80 @@ Hardware detection runs on first launch and recommends the right tier.
 
 ---
 
+## RAG pipeline
+
+Phase 3 lands the producer chain that turns an uploaded folder into searchable chunks. Each stage owns a single file under `src/services/` or `src/repositories/`; service code never touches SQL or BLOB encoding (rules.md §4.2).
+
+```
+project folder
+    │
+    ▼
+file_discovery_service::discover()
+    │   gitignore-aware walk, extension allow-list,
+    │   50 MiB / 500 MiB / 10 000-file caps,
+    │   path-traversal + symlink-escape guards
+    ▼
+DiscoveredFile { relative_path, size, file_type, language }
+    │
+    ▼
+ast_service::parse(source, SourceLanguage)
+    │   Tree-sitter JS / TS / Python
+    │   Declaration (Function/Method/Class),
+    │   Import, Export, error_count
+    ▼
+ParsedFile
+    │
+    ▼
+chunking_service::chunk_source(source, &ParsedFile)
+    │   Splits at function / class boundaries,
+    │   500–1 500 token target,
+    │   oversize flag above 1 500
+    ▼
+Vec<Chunk>
+    │   + EmbeddingProvider::embed(...)
+    ▼
+chunk_repo::insert_batch(pool, ChunkInsert[])
+    │   BLOB-packed f32 vectors,
+    │   per-(project, provider, dim) cap = 50 000,
+    │   atomic transaction
+    ▼
+SQLite (code_chunks)
+```
+
+Search side:
+
+```rust
+use testing_ide_lib::repositories::chunk_repo::{search_similar, SEARCH_TOP_K_CAP};
+
+let hits = search_similar(
+    &pool,
+    project_id,
+    "ollama-nomic-embed-text",
+    768,
+    &query_embedding,
+    SEARCH_TOP_K_CAP,
+).await?;
+```
+
+`hits` are sorted by cosine similarity descending. The query path:
+
+- Validates query length matches dimension (rejects cross-dim comparisons).
+- Filters rows by `(project_id, embedding_provider, embedding_dim)` so results stay within one provider's vector space.
+- Brute-force cosine for now; transparent migration to a `sqlite-vec` `vec0` virtual table when chunk count crosses 50 000 per tuple (see [ADR-0002](./apps/desktop/src-tauri/docs/adr/0002-vec0-migration-trigger.md)).
+- Top-K clamped to `SEARCH_TOP_K_CAP` (50) regardless of caller request.
+
+**Limits enforced server-side**:
+
+| Limit | Source | Constant |
+|-------|--------|----------|
+| Per file | 50 MiB | `MAX_FILE_SIZE_BYTES` |
+| Per project | 500 MiB | `MAX_PROJECT_SIZE_BYTES` |
+| File count | 10 000 | `MAX_FILE_COUNT` |
+| Chunk count per `(project, provider, dim)` | 50 000 | `MAX_CHUNKS_PER_TUPLE` |
+| Search top-K | 50 | `SEARCH_TOP_K_CAP` |
+
+---
+
 ## Project structure
 
 ```
@@ -225,7 +300,9 @@ Testing-IDE/
 │           ├── build.rs
 │           ├── capabilities/
 │           ├── docs/adr/
+│           │   ├── README.md                 # ADR index + frontmatter spec
 │           │   ├── 0001-blob-embeddings.md
+│           │   ├── 0002-vec0-migration-trigger.md
 │           │   └── 0003-llm-provider-trait.md
 │           ├── icons/
 │           ├── migrations/
@@ -234,30 +311,34 @@ Testing-IDE/
 │           └── src/
 │               ├── main.rs
 │               ├── lib.rs
-│               ├── config.rs              # Typed env loading
-│               ├── error.rs               # AppError + AppResult
-│               ├── commands/              # Tauri IPC handlers (Phase 6)
-│               ├── services/              # Business logic (Phase 3+)
-│               ├── repositories/          # DB access (Phase 3+)
-│               ├── workers/               # Background jobs
-│               ├── prompts/               # Versioned prompt templates (Phase 4)
-│               ├── providers/             # External integrations (Phase 2 — done)
+│               ├── config.rs                 # Typed env loading
+│               ├── error.rs                  # AppError + AppResult
+│               ├── commands/                 # Tauri IPC handlers (Phase 6)
+│               ├── services/                 # Business logic (Phase 3 — done)
+│               │   ├── file_discovery_service.rs
+│               │   ├── ast_service.rs
+│               │   └── chunking_service.rs
+│               ├── repositories/             # DB access (Phase 3 — done)
+│               │   └── chunk_repo.rs         # BLOB insert + cosine search
+│               ├── workers/                  # Background jobs
+│               ├── prompts/                  # Versioned prompt templates (Phase 4)
+│               ├── providers/                # External integrations (Phase 2 — done)
 │               │   ├── factory.rs
 │               │   ├── llm/
-│               │   │   ├── mod.rs           # LlmProvider trait
-│               │   │   ├── error.rs         # LlmError
-│               │   │   ├── types.rs         # GenerateRequest, Chunk, etc.
+│               │   │   ├── mod.rs            # LlmProvider trait
+│               │   │   ├── error.rs          # LlmError
+│               │   │   ├── types.rs          # GenerateRequest, Chunk, etc.
 │               │   │   ├── ollama.rs
 │               │   │   ├── openai.rs
-│               │   │   ├── openai_compat.rs # Shared SSE parser
+│               │   │   ├── openai_compat.rs  # Shared SSE parser
 │               │   │   ├── openrouter.rs
 │               │   │   └── anthropic.rs
 │               │   └── embeddings/
-│               │       ├── mod.rs           # EmbeddingProvider trait
+│               │       ├── mod.rs            # EmbeddingProvider trait
 │               │       └── ollama.rs
-│               ├── db/                     # SQLite pool + migrations
+│               ├── db/                       # SQLite pool + migrations
 │               └── utils/
-│                   └── telemetry.rs        # tracing setup
+│                   └── telemetry.rs          # tracing setup
 ├── plan/                                 # Planning docs
 │   ├── initial-plan.md
 │   ├── tech-stack.md
@@ -292,9 +373,10 @@ Significant decisions are captured as Architecture Decision Records under `apps/
 | ADR | Title | Status |
 |-----|-------|--------|
 | 0001 | BLOB embeddings + brute-force cosine for MVP RAG | Accepted |
+| 0002 | sqlite-vec vec0 migration trigger and rollout plan | Accepted |
 | 0003 | LlmProvider trait shape and streaming model | Accepted |
 
-ADR-0002 (sqlite-vec vec0 migration trigger) lands alongside Phase 3 chunk-repository work.
+See [`apps/desktop/src-tauri/docs/adr/README.md`](./apps/desktop/src-tauri/docs/adr/README.md) for the frontmatter convention and when-to-write-an-ADR guidance.
 
 ---
 
@@ -303,11 +385,11 @@ ADR-0002 (sqlite-vec vec0 migration trigger) lands alongside Phase 3 chunk-repos
 ### Shipped
 
 - **Phase 1** — Foundation: monorepo + Tauri scaffold, layered architecture per [rules.md §4.2](./rules/rules.md), typed env config, AppError + AppResult, SQLite pool with WAL + foreign keys, migrations runner, schema for users / projects / files / chunks / artifacts / providers / dependencies, structured tracing logs.
-- **Phase 2** — LLM provider abstraction: 4 chat providers + 1 embedding provider + factory + typed `LlmError`. 88 tests, fmt + clippy + release build green, audit triaged.
+- **Phase 2** — LLM provider abstraction: 4 chat providers + 1 embedding provider + factory + typed `LlmError`. 88 tests at end of phase, fmt + clippy + release build green, audit triaged.
+- **Phase 3** — AST pipeline producer chain: `file_discovery_service` (gitignore-aware walk, extension allow-list, size caps, path-traversal guards), `ast_service` (Tree-sitter JS/TS/Python with declaration / import / export extraction), `chunking_service` (function / class / module-boundary chunks with token counts + oversize flag), `chunk_repo` (BLOB embeddings with brute-force cosine search filtered by `(project_id, embedding_provider, embedding_dim)`, top-K capped at 50, 50 000-chunk-per-tuple cap per ADR-0002). 136 tests at end of phase.
 
 ### Next
 
-- **Phase 3** — File discovery (gitignore-aware, extension whitelist, size limits), Tree-sitter AST extraction (JS/TS/Python), semantic chunking at function / class boundaries, embedding pipeline, chunk repository with brute-force cosine search filtered by `(project_id, embedding_provider, embedding_dim)`.
 - **Phase 4** — Versioned prompt templates (`prompts/{context, test_plan, test_cases, defect_report}_v1.rs`) with JSON-Schema tool-calling for structured output. Snapshot tests via `insta`.
 - **Phase 5** — Generation service tying RAG + prompts + LLM streaming. Token-budget enforcement (`AppError::LimitExceeded`).
 - **Phase 6** — Tauri IPC commands (`projects`, `analysis`, `generation`, `providers`, `health`). AES-GCM API-key encryption helper. First-run wizard, hardware detection.
