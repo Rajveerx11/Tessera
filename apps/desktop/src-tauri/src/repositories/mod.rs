@@ -4,5 +4,12 @@
 //! repositories; repositories call sqlx. Parameterized queries only —
 //! never concatenate user input into SQL.
 //!
-//! Sub-modules added in Phase 3+: `chunk_repo`, `project_repo`,
-//! `artifact_repo`, `provider_config_repo`.
+//! Sub-modules:
+//!
+//! - [`chunk_repo`] (Phase 3) — embedding-aware chunk persistence with
+//!   brute-force cosine search per ADR-0001 / ADR-0002.
+//!
+//! Future phases add `project_repo`, `artifact_repo`,
+//! `provider_config_repo`.
+
+pub mod chunk_repo;

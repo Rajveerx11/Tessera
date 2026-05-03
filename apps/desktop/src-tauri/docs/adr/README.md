@@ -16,7 +16,7 @@ or superseding a decision requires a new ADR, never a rewrite.
 | #     | Title                                                           | Status     | Implements |
 | ----- | --------------------------------------------------------------- | ---------- | ---------- |
 | 0001  | [BLOB embeddings + brute-force cosine for MVP RAG](./0001-blob-embeddings.md) | Accepted   | Phase 1 schema (`code_chunks`) |
-| 0002  | sqlite-vec vec0 migration trigger _(planned, lands with Phase 3)_ | Planned    | Phase 3+ |
+| 0002  | [sqlite-vec vec0 migration trigger](./0002-vec0-migration-trigger.md) | Accepted   | Phase 3+ chunk repo |
 | 0003  | [LlmProvider trait shape and streaming model](./0003-llm-provider-trait.md) | Accepted   | Phase 2 (`src/providers/llm/`) |
 
 Add new ADRs in numeric order; never reuse a number even after
