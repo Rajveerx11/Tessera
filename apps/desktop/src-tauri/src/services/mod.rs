@@ -5,5 +5,12 @@
 //! (delegated to `repositories`). Services may call `providers` for
 //! external integrations (LLM, embeddings).
 //!
-//! Sub-modules added in Phases 3 + 5: `file_discovery_service`,
-//! `ast_service`, `chunking_service`, `generation_service`, `context_service`.
+//! Sub-modules:
+//!
+//! - [`file_discovery_service`] (Phase 3) — project-folder walk with
+//!   `.gitignore` filtering, extension allow-list, and size caps.
+//!
+//! Future Phase 3 / 5 modules: `ast_service`, `chunking_service`,
+//! `generation_service`, `context_service`.
+
+pub mod file_discovery_service;
