@@ -9,8 +9,11 @@
 //!
 //! - [`file_discovery_service`] (Phase 3) — project-folder walk with
 //!   `.gitignore` filtering, extension allow-list, and size caps.
+//! - [`ast_service`] (Phase 3) — Tree-sitter parsing (JS / TS / Python)
+//!   into typed declarations, imports, and exports.
 //!
-//! Future Phase 3 / 5 modules: `ast_service`, `chunking_service`,
-//! `generation_service`, `context_service`.
+//! Future Phase 3 / 5 modules: `chunking_service`, `generation_service`,
+//! `context_service`.
 
+pub mod ast_service;
 pub mod file_discovery_service;

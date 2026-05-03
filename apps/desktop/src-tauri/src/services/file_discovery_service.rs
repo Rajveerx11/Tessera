@@ -120,11 +120,11 @@ pub fn discover(project_root: impl AsRef<Path>) -> AppResult<DiscoveryReport> {
         .ignore(true)
         .parents(false)
         .follow_links(false); // never traverse symlinks
-    // Honor `.gitignore` even when the project is not yet a git repo.
-    // `git_ignore(true)` alone needs a `.git` directory to activate;
-    // registering `.gitignore` as a generic ignore filename means a
-    // user-uploaded folder gets the same filtering whether or not it
-    // has been `git init`ed.
+                              // Honor `.gitignore` even when the project is not yet a git repo.
+                              // `git_ignore(true)` alone needs a `.git` directory to activate;
+                              // registering `.gitignore` as a generic ignore filename means a
+                              // user-uploaded folder gets the same filtering whether or not it
+                              // has been `git init`ed.
     builder.add_custom_ignore_filename(".gitignore");
     let walker = builder.build();
 
