@@ -41,6 +41,9 @@ importers:
       tailwind-merge:
         specifier: ^2.6.0
         version: 2.6.1
+      zod:
+        specifier: ^3.24.1
+        version: 3.25.76
     devDependencies:
       '@eslint/js':
         specifier: ^9.17.0
@@ -84,6 +87,9 @@ importers:
       vite:
         specifier: ^6.0.0
         version: 6.4.2(@types/node@22.19.17)(jiti@2.6.1)(lightningcss@1.32.0)
+      vitest:
+        specifier: ^3.0.0
+        version: 3.2.4(@types/node@22.19.17)(jiti@2.6.1)(lightningcss@1.32.0)
 
   packages/eslint-config:
     dependencies:
