@@ -40,7 +40,10 @@ pub struct ProjectFile {
 ///
 /// - `AppError::InvalidInput` if any file has an empty path.
 /// - `AppError::Database` for SQLx-level failures.
-pub async fn insert_batch(pool: &SqlitePool, files: Vec<ProjectFileInsert>) -> AppResult<Vec<String>> {
+pub async fn insert_batch(
+    pool: &SqlitePool,
+    files: Vec<ProjectFileInsert>,
+) -> AppResult<Vec<String>> {
     if files.is_empty() {
         return Ok(Vec::new());
     }

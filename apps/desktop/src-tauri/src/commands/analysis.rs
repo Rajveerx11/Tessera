@@ -21,8 +21,7 @@ pub async fn analyze_project(
     project_id: String,
 ) -> Result<AnalysisOutcome, String> {
     let embeddings: Arc<dyn crate::providers::embeddings::EmbeddingProvider> = Arc::new(
-        OllamaEmbeddingProvider::new(config.ollama_base_url.clone())
-            .map_err(|e| e.to_string())?,
+        OllamaEmbeddingProvider::new(config.ollama_base_url.clone()).map_err(|e| e.to_string())?,
     );
 
     analysis_service::analyze(&pool, &project_id, embeddings)

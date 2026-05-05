@@ -57,10 +57,7 @@ pub async fn list_provider_configs(
 
 #[tauri::command]
 #[allow(clippy::needless_pass_by_value)]
-pub async fn delete_provider_config(
-    pool: State<'_, SqlitePool>,
-    id: String,
-) -> Result<(), String> {
+pub async fn delete_provider_config(pool: State<'_, SqlitePool>, id: String) -> Result<(), String> {
     provider_config_service::delete_config(&pool, &id)
         .await
         .map_err(|e| e.to_string())

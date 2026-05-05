@@ -24,8 +24,8 @@ use tracing::{info, warn};
 use crate::error::{AppError, AppResult};
 use crate::providers::embeddings::EmbeddingProvider;
 use crate::repositories::{chunk_repo, project_file_repo, project_repo};
-use crate::services::{ast_service, chunking_service, file_discovery_service};
 use crate::services::file_discovery_service::{FileType, SourceLanguage};
+use crate::services::{ast_service, chunking_service, file_discovery_service};
 
 const EMBEDDING_BATCH_SIZE: usize = 32;
 
@@ -65,17 +65,15 @@ pub async fn analyze(
             Ok(outcome)
         }
         Err(e) => {
-            let _ = project_repo::update_status(
-                pool,
-                project_id,
-                project_repo::ProjectStatus::Error,
-            )
-            .await;
+            let _ =
+                project_repo::update_status(pool, project_id, project_repo::ProjectStatus::Error)
+                    .await;
             Err(e)
         }
     }
 }
 
+#[allow(clippy::too_many_lines)]
 async fn run_pipeline(
     pool: &SqlitePool,
     project_id: &str,
@@ -132,9 +130,7 @@ async fn run_pipeline(
     let mut all_chunk_inserts = Vec::new();
 
     for (idx, discovered) in report.files.iter().enumerate() {
-        if discovered.file_type != FileType::Source
-            && discovered.file_type != FileType::Test
-        {
+        if discovered.file_type != FileType::Source && discovered.file_type != FileType::Test {
             continue;
         }
         if discovered.language == SourceLanguage::Unknown {

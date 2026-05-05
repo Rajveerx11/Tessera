@@ -88,16 +88,16 @@ pub fn build_provider_config(
 ) -> AppResult<ProviderConfig> {
     let kind = parse_provider_kind(&row.provider)?;
 
-    let api_key = match (&row.api_key_encrypted, &row.api_key_nonce) {
-        (Some(ct), Some(nonce)) => {
-            let plaintext = crypto.decrypt(ct, nonce)?;
-            Some(
-                String::from_utf8(plaintext)
-                    .map_err(|_| AppError::Internal(anyhow::anyhow!("decrypted key is not UTF-8")))?,
-            )
-        }
-        _ => None,
-    };
+    let api_key =
+        match (&row.api_key_encrypted, &row.api_key_nonce) {
+            (Some(ct), Some(nonce)) => {
+                let plaintext = crypto.decrypt(ct, nonce)?;
+                Some(String::from_utf8(plaintext).map_err(|_| {
+                    AppError::Internal(anyhow::anyhow!("decrypted key is not UTF-8"))
+                })?)
+            }
+            _ => None,
+        };
 
     Ok(ProviderConfig {
         kind,
@@ -173,7 +173,9 @@ mod tests {
         .await
         .expect("save");
 
-        let row = provider_config_repo::fetch(&pool, &id).await.expect("fetch");
+        let row = provider_config_repo::fetch(&pool, &id)
+            .await
+            .expect("fetch");
         let config = build_provider_config(&crypto, &row).expect("build");
         assert_eq!(config.kind, ProviderKind::OpenAi);
         assert_eq!(config.api_key.as_deref(), Some("sk-secret"));

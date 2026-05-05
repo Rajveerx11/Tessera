@@ -54,9 +54,7 @@ pub async fn create_project(
 }
 
 #[tauri::command]
-pub async fn list_projects(
-    pool: State<'_, SqlitePool>,
-) -> Result<Vec<ProjectResponse>, String> {
+pub async fn list_projects(pool: State<'_, SqlitePool>) -> Result<Vec<ProjectResponse>, String> {
     project_service::list_projects(&pool)
         .await
         .map(|v| v.into_iter().map(ProjectResponse::from).collect())
@@ -77,10 +75,7 @@ pub async fn get_project(
 
 #[tauri::command]
 #[allow(clippy::needless_pass_by_value)]
-pub async fn delete_project(
-    pool: State<'_, SqlitePool>,
-    id: String,
-) -> Result<(), String> {
+pub async fn delete_project(pool: State<'_, SqlitePool>, id: String) -> Result<(), String> {
     project_service::delete_project(&pool, &id)
         .await
         .map_err(|e| e.to_string())

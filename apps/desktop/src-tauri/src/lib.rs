@@ -1,6 +1,11 @@
 #![deny(clippy::all)]
 #![warn(clippy::pedantic)]
 #![allow(clippy::module_name_repetitions)]
+// Thin command / repository / service pass-throughs propagate `AppError`
+// uniformly; bullet-listing every variant per function adds noise without
+// information. Critical services (e.g. `generation_service`) document
+// errors in full where the variant set is non-obvious.
+#![allow(clippy::missing_errors_doc)]
 
 //! Testing IDE — Tauri backend library.
 //!
@@ -53,8 +58,8 @@ pub fn run() {
             app.manage(pool);
 
             let data_dir = db_path.parent().unwrap_or(std::path::Path::new("."));
-            let crypto_key = utils::crypto::CryptoKey::load_or_generate(data_dir)
-                .map_err(|e| e.to_string())?;
+            let crypto_key =
+                utils::crypto::CryptoKey::load_or_generate(data_dir).map_err(|e| e.to_string())?;
             tracing::info!("encryption key loaded");
             app.manage(crypto_key);
 
