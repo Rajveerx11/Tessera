@@ -79,6 +79,7 @@ This IDE bridges the gap with three guarantees:
 | 5 | Generation service tying RAG + prompts + LLM | **Shipped** ([PR #10](https://github.com/Rajveerx11/Testing-IDE/pull/10)) |
 | 6 | Tauri IPC commands + AES-GCM API-key encryption | **Shipped** (merged direct to `master` — commit `dc4d7d4`) |
 | 7 | Integration tests against Ollama, snapshot tests for prompts, CI workflow | **Shipped** (merged direct to `master`) |
+| 8 | Frontend IPC client + first-run wizard | **Shipped** (merged direct to `master`) |
 
 **Parallel streams shipped:**
 - **Monorepo** — pnpm workspaces + Turborepo at root. `packages/shared/` (Zod schemas + TS types for FE/BE contracts), `packages/eslint-config/`, `packages/tsconfig/`, `packages/ui/`. Single source of truth for types is the Rust serde-derived data layer; Zod schemas mirror per `rules.md` §12.3.1.
@@ -432,12 +433,14 @@ See [`apps/desktop/src-tauri/docs/adr/README.md`](./apps/desktop/src-tauri/docs/
 - **Phase 5** — `generation_service` ties RAG (cosine search over `code_chunks`) + versioned prompts + `LlmProvider` streaming. Token-budget enforcement raises `AppError::LimitExceeded`. Tool-output validated against the prompt's JSON Schema before persistence to `artifacts`.
 - **Phase 6** — Tauri IPC layer + AES-256-GCM API-key encryption. Adds `commands/{projects, analysis, generation, providers, health}` (11 IPC handlers) over thin services (`project_service`, `analysis_service`, `provider_config_service`, `health_service`) and three new repositories (`project_repo`, `project_file_repo`, `provider_config_repo`). `utils/crypto.rs` bootstraps a per-install key on disk; provider API keys are encrypted at rest and `ProviderConfigView` never serializes plaintext. 231 lib tests at end of phase, zero clippy warnings under `pedantic`.
 - **Phase 7** — CI + integration tests. `.github/workflows/ci.yml` runs `cargo fmt --check`, `cargo clippy --all-targets -- -D warnings`, `cargo test --lib`, and `cargo build --release --lib` across Ubuntu / Windows / macOS, plus `pnpm -w lint` + `pnpm -w typecheck` on the frontend workspace. `.github/workflows/release.yml` builds Tauri bundles (`.msi` / `.dmg` / `.AppImage` / `.deb`) on `v*` tag pushes via `tauri-apps/tauri-action@v0` and uploads them to a draft GitHub Release. New `tests/integration_ollama.rs` test binary exercises the live Ollama embedding + chat endpoints; opt-in via `OLLAMA_INTEGRATION=1` so default `cargo test` runs cold without a daemon. Snapshot tests for the five `_v1` prompt templates landed in Phase 4 and remain green.
+- **Phase 8** — Frontend IPC client + first-run wizard. `packages/shared` schemas re-aligned to the Phase 6 backend (`Project`, `ProviderConfigView`, plus new `HealthStatus`, `AnalysisOutcome`, `GenerateArgs/Response`). 24 contract tests in `packages/shared` (was 12). New `apps/desktop/src/lib/ipc/` typed wrappers (`projects`, `analysis`, `generation`, `providers`, `health`, `system`) — single chokepoint for `@tauri-apps/api/core` per `rules.md` §4.2.1. Every wrapper validates responses against a Zod schema; failures surface as `IpcError` carrying the originating command name. New `lib/hardware-tier.ts` recommends an Ollama model from total RAM (boundary cases unit-tested under `lib/hardware-tier.test.ts` with vitest). `components/first-run-wizard.tsx` calls `health_check`, displays OS / RAM / CPU / DB status, surfaces the recommended model, and persists a "seen" flag in `localStorage`. `App.tsx` routes between the wizard and the existing IPC smoke shell.
 - **Monorepo + frontend scaffold** (parallel stream) — pnpm workspaces, Turborepo, shared Zod schemas mirroring Rust types per `rules.md` §12.3.1, ESLint / TS configs, Vite + React 19 + Tailwind + shadcn skeleton. First Tauri IPC commands wired (`greet`, `init_db`).
 
 ### Next
 
-- **First-run wizard + hardware detection UI** — surfaces `health_check` IPC output and recommends a local model tier.
-- **Frontend integration** — TypeScript Tauri client wrappers in `packages/shared` for the Phase 6 IPC surface.
+- **Provider config UI** — Settings panel: pick provider, paste API key, save (encrypted at rest via Phase 6 `save_provider_config`).
+- **Project workspace shell** — folder picker → `create_project` → `analyze_project` → render file tree + Monaco viewer.
+- **Generation + review queue UI** — wire `generate_artifact` (streaming via Tauri events when implemented), Markdown preview pane, approve / reject / regenerate flow.
 - **Coverage** — wire `cargo llvm-cov` into a separate workflow once a Codecov token is provisioned.
 
 ### Beyond

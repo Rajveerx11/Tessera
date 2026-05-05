@@ -1,50 +1,57 @@
-import { invoke } from '@tauri-apps/api/core';
 import { useCallback, useEffect, useState } from 'react';
 
+import { FirstRunWizard } from '@/components/first-run-wizard';
 import { Button } from '@/components/ui/button';
-
-type InitDbResponse = {
-  dbPath: string;
-  ok: boolean;
-};
+import { IpcError, system } from '@/lib/ipc';
+import type { InitDbResponse } from '@/lib/ipc/system';
+import { readOnboardingFlag } from '@/lib/onboarding';
 
 /**
- * Desktop shell: verifies Tauri IPC (`greet`, `init_db`) and renders a minimal layout.
+ * Desktop shell.
+ *
+ * Phase 8: routes to the first-run wizard until the user dismisses it,
+ * then renders the IPC smoke panel. Real workspace UI (file tree, Monaco,
+ * AI panel) lands in later phases.
  */
 export function App() {
+  const [showWizard, setShowWizard] = useState<boolean>(() => !readOnboardingFlag());
   const [initResult, setInitResult] = useState<InitDbResponse | null>(null);
   const [initError, setInitError] = useState<string | null>(null);
   const [greeting, setGreeting] = useState<string | null>(null);
   const [greetError, setGreetError] = useState<string | null>(null);
 
   useEffect(() => {
+    if (showWizard) return;
     let cancelled = false;
-    void invoke<InitDbResponse>('init_db')
+    void system
+      .initDb()
       .then((r) => {
-        if (!cancelled) {
-          setInitResult(r);
-        }
+        if (!cancelled) setInitResult(r);
       })
       .catch((err: unknown) => {
-        if (!cancelled) {
-          setInitError(err instanceof Error ? err.message : String(err));
-        }
+        if (cancelled) return;
+        setInitError(err instanceof IpcError ? err.message : String(err));
       });
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [showWizard]);
 
   const handleGreet = useCallback(() => {
     setGreetError(null);
-    void invoke<string>('greet', { name: 'Testing IDE' })
+    void system
+      .greet('Testing IDE')
       .then((msg) => {
         setGreeting(msg);
       })
       .catch((err: unknown) => {
-        setGreetError(err instanceof Error ? err.message : String(err));
+        setGreetError(err instanceof IpcError ? err.message : String(err));
       });
   }, []);
+
+  if (showWizard) {
+    return <FirstRunWizard onComplete={() => setShowWizard(false)} />;
+  }
 
   return (
     <div className="flex min-h-screen flex-col gap-6 p-8">
