@@ -14,7 +14,9 @@ use crate::providers::embeddings::OllamaEmbeddingProvider;
 use crate::providers::factory;
 use crate::repositories::artifact_repo::ArtifactType;
 use crate::repositories::provider_config_repo;
-use crate::services::generation_service::{self, GenerationDeps, GenerationOutcome, GenerationRequest};
+use crate::services::generation_service::{
+    self, GenerationDeps, GenerationOutcome, GenerationRequest,
+};
 use crate::services::provider_config_service;
 use crate::utils::crypto::CryptoKey;
 
@@ -67,26 +69,19 @@ pub async fn generate_artifact(
     crypto: State<'_, CryptoKey>,
     args: GenerateArgs,
 ) -> Result<GenerateResponse, String> {
-    let artifact_type = parse_artifact_type(&args.artifact_type)
+    let artifact_type = parse_artifact_type(&args.artifact_type).map_err(|e| e.to_string())?;
+
+    let row = provider_config_repo::fetch_active(&pool, DEFAULT_USER_ID, &args.provider)
+        .await
         .map_err(|e| e.to_string())?;
 
-    let row = provider_config_repo::fetch_active(
-        &pool,
-        DEFAULT_USER_ID,
-        &args.provider,
-    )
-    .await
-    .map_err(|e| e.to_string())?;
+    let provider_config =
+        provider_config_service::build_provider_config(&crypto, &row).map_err(|e| e.to_string())?;
 
-    let provider_config = provider_config_service::build_provider_config(&crypto, &row)
-        .map_err(|e| e.to_string())?;
-
-    let llm = factory::build_llm_provider(&provider_config)
-        .map_err(|e| e.to_string())?;
+    let llm = factory::build_llm_provider(&provider_config).map_err(|e| e.to_string())?;
 
     let embeddings: Arc<dyn crate::providers::embeddings::EmbeddingProvider> = Arc::new(
-        OllamaEmbeddingProvider::new(config.ollama_base_url.clone())
-            .map_err(|e| e.to_string())?,
+        OllamaEmbeddingProvider::new(config.ollama_base_url.clone()).map_err(|e| e.to_string())?,
     );
 
     let request = GenerationRequest {
@@ -114,7 +109,5 @@ pub async fn generate_artifact(
 
 fn parse_artifact_type(s: &str) -> Result<ArtifactType, crate::error::AppError> {
     ArtifactType::from_str_value(s)
-        .ok_or_else(|| crate::error::AppError::InvalidInput(
-            format!("unknown artifact_type `{s}`"),
-        ))
+        .ok_or_else(|| crate::error::AppError::InvalidInput(format!("unknown artifact_type `{s}`")))
 }

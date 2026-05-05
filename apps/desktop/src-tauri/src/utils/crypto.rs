@@ -69,6 +69,7 @@ impl CryptoKey {
     }
 
     /// Resolve the key file path from a Tauri app handle.
+    #[must_use]
     pub fn key_file_path(data_dir: &Path) -> PathBuf {
         data_dir.join(KEY_FILENAME)
     }
@@ -164,9 +165,7 @@ mod tests {
     fn bad_nonce_length_rejected() {
         let key = test_key();
         let (ciphertext, _) = key.encrypt(b"data").expect("encrypt");
-        let err = key
-            .decrypt(&ciphertext, &[0u8; 8])
-            .expect_err("must fail");
+        let err = key.decrypt(&ciphertext, &[0u8; 8]).expect_err("must fail");
         assert_eq!(err.code(), "INVALID_INPUT");
     }
 
@@ -178,7 +177,9 @@ mod tests {
 
         let plaintext = b"round-trip test";
         let (ct, nonce) = key1.encrypt(plaintext).expect("encrypt");
-        let decrypted = key2.decrypt(&ct, &nonce).expect("decrypt with reloaded key");
+        let decrypted = key2
+            .decrypt(&ct, &nonce)
+            .expect("decrypt with reloaded key");
         assert_eq!(decrypted, plaintext);
 
         let _ = std::fs::remove_dir_all(&dir);

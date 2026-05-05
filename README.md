@@ -78,7 +78,7 @@ This IDE bridges the gap with three guarantees:
 | 4 | Versioned prompt templates with JSON-Schema function calling | **Shipped** ([PR #9](https://github.com/Rajveerx11/Testing-IDE/pull/9)) |
 | 5 | Generation service tying RAG + prompts + LLM | **Shipped** ([PR #10](https://github.com/Rajveerx11/Testing-IDE/pull/10)) |
 | 6 | Tauri IPC commands + AES-GCM API-key encryption | **Shipped** (merged direct to `master` — commit `dc4d7d4`) |
-| 7 | Integration tests against Ollama, snapshot tests for prompts, CI workflow | Pending |
+| 7 | Integration tests against Ollama, snapshot tests for prompts, CI workflow | **Shipped** (merged direct to `master`) |
 
 **Parallel streams shipped:**
 - **Monorepo** — pnpm workspaces + Turborepo at root. `packages/shared/` (Zod schemas + TS types for FE/BE contracts), `packages/eslint-config/`, `packages/tsconfig/`, `packages/ui/`. Single source of truth for types is the Rust serde-derived data layer; Zod schemas mirror per `rules.md` §12.3.1.
@@ -431,13 +431,14 @@ See [`apps/desktop/src-tauri/docs/adr/README.md`](./apps/desktop/src-tauri/docs/
 - **Phase 4** — Versioned prompt templates under `src/prompts/` (`context_v1`, `test_plan_v1`, `test_cases_v1`, `defect_report_v1`) with JSON-Schema tool-calling for structured output. Snapshot tests via `insta`.
 - **Phase 5** — `generation_service` ties RAG (cosine search over `code_chunks`) + versioned prompts + `LlmProvider` streaming. Token-budget enforcement raises `AppError::LimitExceeded`. Tool-output validated against the prompt's JSON Schema before persistence to `artifacts`.
 - **Phase 6** — Tauri IPC layer + AES-256-GCM API-key encryption. Adds `commands/{projects, analysis, generation, providers, health}` (11 IPC handlers) over thin services (`project_service`, `analysis_service`, `provider_config_service`, `health_service`) and three new repositories (`project_repo`, `project_file_repo`, `provider_config_repo`). `utils/crypto.rs` bootstraps a per-install key on disk; provider API keys are encrypted at rest and `ProviderConfigView` never serializes plaintext. 231 lib tests at end of phase, zero clippy warnings under `pedantic`.
+- **Phase 7** — CI + integration tests. `.github/workflows/ci.yml` runs `cargo fmt --check`, `cargo clippy --all-targets -- -D warnings`, `cargo test --lib`, and `cargo build --release --lib` across Ubuntu / Windows / macOS, plus `pnpm -w lint` + `pnpm -w typecheck` on the frontend workspace. `.github/workflows/release.yml` builds Tauri bundles (`.msi` / `.dmg` / `.AppImage` / `.deb`) on `v*` tag pushes via `tauri-apps/tauri-action@v0` and uploads them to a draft GitHub Release. New `tests/integration_ollama.rs` test binary exercises the live Ollama embedding + chat endpoints; opt-in via `OLLAMA_INTEGRATION=1` so default `cargo test` runs cold without a daemon. Snapshot tests for the five `_v1` prompt templates landed in Phase 4 and remain green.
 - **Monorepo + frontend scaffold** (parallel stream) — pnpm workspaces, Turborepo, shared Zod schemas mirroring Rust types per `rules.md` §12.3.1, ESLint / TS configs, Vite + React 19 + Tailwind + shadcn skeleton. First Tauri IPC commands wired (`greet`, `init_db`).
 
 ### Next
 
-- **Phase 7** — Integration tests against Ollama (no API credit needed), full test suite via `cargo llvm-cov`, GitHub Actions CI matrix (Windows / macOS / Linux), release-bundle workflow via `tauri-action`.
 - **First-run wizard + hardware detection UI** — surfaces `health_check` IPC output and recommends a local model tier.
 - **Frontend integration** — TypeScript Tauri client wrappers in `packages/shared` for the Phase 6 IPC surface.
+- **Coverage** — wire `cargo llvm-cov` into a separate workflow once a Codecov token is provisioned.
 
 ### Beyond
 

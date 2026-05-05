@@ -33,7 +33,6 @@ pub async fn delete_project(pool: &SqlitePool, id: &str) -> AppResult<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::db::init_pool_at;
     use std::path::PathBuf;
     use uuid::Uuid;
 

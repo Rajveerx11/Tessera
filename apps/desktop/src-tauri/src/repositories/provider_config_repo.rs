@@ -50,13 +50,12 @@ pub async fn upsert(pool: &SqlitePool, row: ProviderConfigUpsert) -> AppResult<S
     let now = Utc::now().to_rfc3339();
     let is_active_int: i32 = i32::from(row.is_active);
 
-    let existing: Option<(String,)> = sqlx::query_as(
-        "SELECT id FROM user_provider_configs WHERE user_id = ? AND provider = ?",
-    )
-    .bind(DEFAULT_USER_ID)
-    .bind(row.provider.trim())
-    .fetch_optional(pool)
-    .await?;
+    let existing: Option<(String,)> =
+        sqlx::query_as("SELECT id FROM user_provider_configs WHERE user_id = ? AND provider = ?")
+            .bind(DEFAULT_USER_ID)
+            .bind(row.provider.trim())
+            .fetch_optional(pool)
+            .await?;
 
     if let Some((id,)) = existing {
         sqlx::query(
@@ -159,16 +158,16 @@ pub async fn delete(pool: &SqlitePool, id: &str) -> AppResult<()> {
 }
 
 type RawRow = (
-    String,         // id
-    String,         // user_id
-    String,         // provider
+    String,          // id
+    String,          // user_id
+    String,          // provider
     Option<Vec<u8>>, // api_key_encrypted
     Option<Vec<u8>>, // api_key_nonce
-    Option<String>, // base_url
-    Option<String>, // default_model
-    i32,            // is_active
-    String,         // created_at
-    String,         // updated_at
+    Option<String>,  // base_url
+    Option<String>,  // default_model
+    i32,             // is_active
+    String,          // created_at
+    String,          // updated_at
 );
 
 fn decode_row(row: RawRow) -> ProviderConfigRow {

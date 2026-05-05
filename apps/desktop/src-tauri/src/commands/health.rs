@@ -8,9 +8,7 @@ use tauri::State;
 use crate::services::health_service::{self, HealthStatus};
 
 #[tauri::command]
-pub async fn health_check(
-    pool: State<'_, SqlitePool>,
-) -> Result<HealthStatus, String> {
+pub async fn health_check(pool: State<'_, SqlitePool>) -> Result<HealthStatus, String> {
     health_service::check(&pool)
         .await
         .map_err(|e| e.to_string())
