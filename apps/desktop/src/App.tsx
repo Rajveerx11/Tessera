@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from 'react';
 import type { ZodError } from 'zod';
 
 import { AiPanelPlaceholder } from '@/components/ai-panel/ai-panel-placeholder';
-import { EditorPlaceholder } from '@/components/editor/editor-placeholder';
+import { EditorPanel } from '@/components/editor/editor-panel';
 import { FileExplorer } from '@/components/file-explorer/file-explorer';
 import { FirstRunWizard } from '@/components/first-run-wizard';
 import { AppShell } from '@/components/layout/app-shell';
@@ -64,7 +64,7 @@ export function App() {
     <>
       <AppShell
         sidebar={<FileExplorer />}
-        editor={<EditorPlaceholder />}
+        editor={<EditorPanel />}
         aiPanel={<AiPanelPlaceholder />}
       />
       <DevPanelToggle open={showDevPanel} onToggle={() => setShowDevPanel((v) => !v)} />

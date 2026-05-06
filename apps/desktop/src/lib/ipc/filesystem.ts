@@ -1,9 +1,53 @@
 import { open as openDialog } from '@tauri-apps/plugin-dialog';
-import { readDir } from '@tauri-apps/plugin-fs';
+import { readDir, readTextFile, stat } from '@tauri-apps/plugin-fs';
 
 import type { FsEntry } from '@/stores/workspace-store';
 
 import { IpcError, asMessage } from './error';
+
+/** Hard cap for in-memory file content. Mirrors backend
+ *  `MAX_FILE_SIZE_BYTES` minus headroom; the editor refuses to load
+ *  anything larger. */
+export const MAX_EDITOR_FILE_BYTES = 2 * 1024 * 1024;
+
+/** Extensions the editor refuses to load — binary blobs that Monaco
+ *  cannot meaningfully render. The backend AST pipeline rejects the
+ *  same set, so the renderer mirrors that policy. */
+const BINARY_EXTENSIONS = new Set<string>([
+  'png',
+  'jpg',
+  'jpeg',
+  'gif',
+  'webp',
+  'ico',
+  'bmp',
+  'svg',
+  'pdf',
+  'zip',
+  'tar',
+  'gz',
+  'rar',
+  '7z',
+  'exe',
+  'dll',
+  'so',
+  'dylib',
+  'class',
+  'jar',
+  'wasm',
+  'mp3',
+  'mp4',
+  'mov',
+  'avi',
+  'wav',
+  'ogg',
+  'ttf',
+  'otf',
+  'woff',
+  'woff2',
+  'db',
+  'sqlite',
+]);
 
 /**
  * Tauri filesystem wrappers for the workspace shell.
@@ -121,4 +165,64 @@ function joinPath(parent: string, child: string): string {
   const sep = parent.includes('\\') && !parent.includes('/') ? '\\' : '/';
   if (parent.endsWith('/') || parent.endsWith('\\')) return `${parent}${child}`;
   return `${parent}${sep}${child}`;
+}
+
+/** Get the lowercase extension (no leading dot) of a path. Empty string
+ *  when the file has no extension. */
+export function fileExtension(path: string): string {
+  const base = path.split(/[\\/]/u).pop() ?? '';
+  const dot = base.lastIndexOf('.');
+  if (dot <= 0) return '';
+  return base.slice(dot + 1).toLowerCase();
+}
+
+/** Whether the editor will attempt to load this file. Used by the file
+ *  explorer to grey out unsupported entries before the user clicks. */
+export function isLikelyBinary(path: string): boolean {
+  return BINARY_EXTENSIONS.has(fileExtension(path));
+}
+
+/**
+ * Read a file from disk into a UTF-8 string.
+ *
+ * Refuses files larger than `MAX_EDITOR_FILE_BYTES` and known-binary
+ * extensions before touching disk so a misclick on a 200 MB asset
+ * does not freeze the renderer.
+ */
+export async function readFileText(absolutePath: string): Promise<string> {
+  if (isLikelyBinary(absolutePath)) {
+    throw new IpcError(
+      'fs.readTextFile',
+      `cannot open binary file (.${fileExtension(absolutePath)}) in the editor`,
+    );
+  }
+
+  let size: number;
+  try {
+    const meta = await stat(absolutePath);
+    size = meta.size;
+  } catch (err) {
+    throw new IpcError('fs.stat', asMessage(err), { cause: err });
+  }
+
+  if (size > MAX_EDITOR_FILE_BYTES) {
+    throw new IpcError(
+      'fs.readTextFile',
+      `file is too large for the editor (${formatBytes(size)} > ${formatBytes(
+        MAX_EDITOR_FILE_BYTES,
+      )})`,
+    );
+  }
+
+  try {
+    return await readTextFile(absolutePath);
+  } catch (err) {
+    throw new IpcError('fs.readTextFile', asMessage(err), { cause: err });
+  }
+}
+
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }

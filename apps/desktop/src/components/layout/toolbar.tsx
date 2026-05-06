@@ -3,6 +3,7 @@ import { useCallback } from 'react';
 
 import { Button } from '@/components/ui/button';
 import { filesystem, IpcError, projects } from '@/lib/ipc';
+import { useEditorStore } from '@/stores/editor-store';
 import { useUiStore } from '@/stores/ui-store';
 import { useWorkspaceStore } from '@/stores/workspace-store';
 
@@ -34,6 +35,9 @@ export function Toolbar() {
       try {
         const name = deriveProjectName(path);
         const created = await projects.createProject(name, path);
+        // Reset the editor first so stale tabs from a previous project
+        // don't survive into the new one.
+        useEditorStore.getState().reset();
         setProject(created);
         const entries = await filesystem.readDirectoryEntries(path, '');
         setTree(entries);
