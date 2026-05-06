@@ -82,6 +82,7 @@ This IDE bridges the gap with three guarantees:
 | 8 | Frontend IPC client + first-run wizard | **Shipped** (merged direct to `master`) |
 | 9 | Workspace shell — three-panel layout, native folder dialog, file explorer | **Shipped** (merged direct to `master`) |
 | 10 | Monaco editor + tab system + file content reads | **Shipped** (merged direct to `master`) |
+| 11 | AI panel + Settings sheet + 4-step wizard + artifact lifecycle IPC | **Shipped** (merged direct to `master`) |
 
 **Parallel streams shipped:**
 - **Monorepo** — pnpm workspaces + Turborepo at root. `packages/shared/` (Zod schemas + TS types for FE/BE contracts), `packages/eslint-config/`, `packages/tsconfig/`, `packages/ui/`. Single source of truth for types is the Rust serde-derived data layer; Zod schemas mirror per `rules.md` §12.3.1.

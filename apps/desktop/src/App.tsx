@@ -3,11 +3,12 @@ import { LoginSchema, RegisterSchema } from '@testing-ide/shared';
 import { useCallback, useEffect, useState } from 'react';
 import type { ZodError } from 'zod';
 
-import { AiPanelPlaceholder } from '@/components/ai-panel/ai-panel-placeholder';
+import { AiPanel } from '@/components/ai-panel/ai-panel';
 import { EditorPanel } from '@/components/editor/editor-panel';
 import { FileExplorer } from '@/components/file-explorer/file-explorer';
 import { FirstRunWizard } from '@/components/first-run-wizard';
 import { AppShell } from '@/components/layout/app-shell';
+import { SettingsSheet } from '@/components/settings/settings-sheet';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { IpcError, system } from '@/lib/ipc';
@@ -62,11 +63,8 @@ export function App() {
 
   return (
     <>
-      <AppShell
-        sidebar={<FileExplorer />}
-        editor={<EditorPanel />}
-        aiPanel={<AiPanelPlaceholder />}
-      />
+      <AppShell sidebar={<FileExplorer />} editor={<EditorPanel />} aiPanel={<AiPanel />} />
+      <SettingsSheet />
       <DevPanelToggle open={showDevPanel} onToggle={() => setShowDevPanel((v) => !v)} />
       {showDevPanel ? <DevPanel /> : null}
     </>
