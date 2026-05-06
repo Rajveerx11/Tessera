@@ -17,6 +17,7 @@
 //! `ollama`, `projects`, `providers`.
 
 pub mod analysis;
+pub mod artifacts;
 pub mod auth;
 pub mod generation;
 pub mod hardware;

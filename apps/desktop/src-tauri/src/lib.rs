@@ -54,6 +54,8 @@ pub fn run() {
     let cfg_for_db_path = cfg.clone();
 
     tauri::Builder::default()
+        .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_fs::init())
         .manage(cfg)
         .setup(move |app| {
             let db_path = db::resolve_app_db_path(app.handle(), &cfg_for_db_path)
@@ -92,7 +94,14 @@ pub fn run() {
             commands::providers::list_provider_configs,
             commands::providers::delete_provider_config,
             commands::providers::test_provider_connection,
+<<<<<<< HEAD
             // Health / system commands
+=======
+            commands::artifacts::list_artifacts,
+            commands::artifacts::get_artifact,
+            commands::artifacts::approve_artifact,
+            commands::artifacts::reject_artifact,
+>>>>>>> 2c616a1c9c3a27b5a267ef3d09cbc02b439d3cff
             commands::health::health_check,
             // Hardware detection command (Phase 8)
             commands::hardware::detect_hardware,

@@ -2,7 +2,9 @@ import { describe, expect, it } from 'vitest';
 
 import {
   AnalysisOutcomeSchema,
+  ArtifactDetailSchema,
   ArtifactSchema,
+  ArtifactSummarySchema,
   CodeChunkSchema,
   ConnectionTestSchema,
   ConnectionTestResultSchema,
@@ -15,6 +17,8 @@ import {
   ProjectSchema,
   ProviderConfigSchema,
   ProviderConfigViewSchema,
+  ProviderConnectionTestArgsSchema,
+  ProviderConnectionTestResultSchema,
   RegisterSchema,
   SaveProviderArgsSchema,
   UserSchema,
@@ -282,6 +286,110 @@ describe('SaveProviderArgsSchema', () => {
       provider: 'ollama',
     });
     expect(parsed.provider).toBe('ollama');
+  });
+});
+
+describe('ProviderConnectionTestArgsSchema', () => {
+  it('accepts an Ollama probe with no key', () => {
+    const parsed = ProviderConnectionTestArgsSchema.parse({
+      provider: 'ollama',
+      baseUrl: 'http://localhost:11434',
+    });
+    expect(parsed.provider).toBe('ollama');
+    expect(parsed.apiKey).toBeUndefined();
+  });
+
+  it('accepts an OpenAI probe with key', () => {
+    const parsed = ProviderConnectionTestArgsSchema.parse({
+      provider: 'openai',
+      apiKey: 'sk-test',
+    });
+    expect(parsed.apiKey).toBe('sk-test');
+  });
+});
+
+describe('ProviderConnectionTestResultSchema', () => {
+  it('accepts a successful probe payload', () => {
+    const parsed = ProviderConnectionTestResultSchema.parse({
+      ok: true,
+      message: 'Ollama reachable',
+      latencyMs: 12,
+    });
+    expect(parsed.ok).toBe(true);
+    expect(parsed.latencyMs).toBe(12);
+  });
+
+  it('rejects negative latency', () => {
+    expect(() =>
+      ProviderConnectionTestResultSchema.parse({
+        ok: false,
+        message: 'failed',
+        latencyMs: -1,
+      }),
+    ).toThrow();
+  });
+});
+
+describe('ArtifactSummarySchema', () => {
+  it('accepts the Phase 11 review-queue payload', () => {
+    const parsed = ArtifactSummarySchema.parse({
+      id: '123e4567-e89b-12d3-a456-426614174000',
+      projectId: '223e4567-e89b-12d3-a456-426614174001',
+      artifactType: 'test-plan',
+      title: 'Plan v1',
+      status: 'draft',
+      version: 1,
+      parentId: null,
+      createdAt: '2026-05-03T12:00:00.000Z',
+      updatedAt: '2026-05-03T12:00:00.000Z',
+      provider: 'ollama',
+      model: 'qwen2.5-coder:7b',
+    });
+    expect(parsed.status).toBe('draft');
+  });
+
+  it('accepts every Phase 11 lifecycle status literal', () => {
+    for (const status of ['draft', 'in_review', 'approved', 'rejected'] as const) {
+      const parsed = ArtifactSummarySchema.parse({
+        id: '123e4567-e89b-12d3-a456-426614174000',
+        projectId: '223e4567-e89b-12d3-a456-426614174001',
+        artifactType: 'test-plan',
+        title: 'X',
+        status,
+        version: 1,
+        parentId: null,
+        createdAt: '2026-05-03T12:00:00.000Z',
+        updatedAt: '2026-05-03T12:00:00.000Z',
+        provider: 'ollama',
+        model: 'qwen2.5-coder:7b',
+      });
+      expect(parsed.status).toBe(status);
+    }
+  });
+});
+
+describe('ArtifactDetailSchema', () => {
+  it('accepts the Phase 11 detail payload', () => {
+    const parsed = ArtifactDetailSchema.parse({
+      id: '123e4567-e89b-12d3-a456-426614174000',
+      projectId: '223e4567-e89b-12d3-a456-426614174001',
+      artifactType: 'test-plan',
+      title: 'Plan v1',
+      contentMd: '# Plan',
+      structuredData: { summary: 'S', objectives: ['O'] },
+      status: 'draft',
+      version: 1,
+      parentId: null,
+      createdAt: '2026-05-03T12:00:00.000Z',
+      updatedAt: '2026-05-03T12:00:00.000Z',
+      provider: 'ollama',
+      model: 'qwen2.5-coder:7b',
+      promptVersion: 'test_plan_v1',
+      inputTokens: 120,
+      outputTokens: 80,
+    });
+    expect(parsed.contentMd).toBe('# Plan');
+    expect(parsed.outputTokens).toBe(80);
   });
 });
 

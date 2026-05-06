@@ -235,6 +235,28 @@ pub async fn list_for_project(pool: &SqlitePool, project_id: &str) -> AppResult<
     rows.into_iter().map(decode_row).collect()
 }
 
+/// Update the lifecycle status of an existing artifact and bump
+/// `updated_at`. Returns `Ok(())` on success.
+///
+/// # Errors
+///
+/// - [`AppError::NotFound`] when no row matches `id`.
+/// - [`AppError::Database`] for SQLx-level failures.
+pub async fn update_status(pool: &SqlitePool, id: &str, status: ArtifactStatus) -> AppResult<()> {
+    let now = chrono::Utc::now().to_rfc3339();
+    let result = sqlx::query("UPDATE artifacts SET status = ?, updated_at = ? WHERE id = ?")
+        .bind(status.as_str())
+        .bind(&now)
+        .bind(id)
+        .execute(pool)
+        .await?;
+
+    if result.rows_affected() == 0 {
+        return Err(AppError::NotFound(format!("artifact {id}")));
+    }
+    Ok(())
+}
+
 async fn max_version_in_chain(pool: &SqlitePool, parent_id: &str) -> AppResult<i64> {
     // Walk up to the root by following parent_id, then take the max
     // version across the whole chain. Bounded depth in practice; the
@@ -482,6 +504,41 @@ mod tests {
         assert_eq!(child_row.version, 2);
         assert_eq!(child_row.parent_id.as_deref(), Some(parent.as_str()));
 
+        pool.close().await;
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[tokio::test]
+    async fn update_status_flips_lifecycle_state() {
+        let (pool, path) = seed_pool().await;
+        let id = insert(&pool, sample_insert()).await.expect("insert");
+        let initial = fetch(&pool, &id).await.expect("initial fetch");
+        assert_eq!(initial.status, ArtifactStatus::Draft);
+
+        update_status(&pool, &id, ArtifactStatus::Approved)
+            .await
+            .expect("approve");
+        let approved = fetch(&pool, &id).await.expect("approved fetch");
+        assert_eq!(approved.status, ArtifactStatus::Approved);
+        assert_ne!(approved.updated_at, initial.updated_at);
+
+        update_status(&pool, &id, ArtifactStatus::Rejected)
+            .await
+            .expect("reject");
+        let rejected = fetch(&pool, &id).await.expect("rejected fetch");
+        assert_eq!(rejected.status, ArtifactStatus::Rejected);
+
+        pool.close().await;
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[tokio::test]
+    async fn update_status_returns_not_found_for_unknown_id() {
+        let (pool, path) = seed_pool().await;
+        let err = update_status(&pool, "no-such-id", ArtifactStatus::Approved)
+            .await
+            .expect_err("must reject unknown id");
+        assert_eq!(err.code(), "NOT_FOUND");
         pool.close().await;
         let _ = std::fs::remove_file(&path);
     }

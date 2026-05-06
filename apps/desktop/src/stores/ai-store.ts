@@ -1,0 +1,74 @@
+import type {
+  ArtifactSummary,
+  GenerationArtifactType,
+  ProviderConfigView,
+} from '@testing-ide/shared';
+import { create } from 'zustand';
+
+/**
+ * AI panel state — review queue + generation status.
+ *
+ * Generation calls the existing Phase 5 `generate_artifact` IPC command.
+ * Streaming token updates are deferred until the backend exposes a
+ * Tauri-event sink; for now generation is request/response with a
+ * `pending` flag while the await is in flight.
+ */
+
+export type GenerationPending = {
+  status: 'pending';
+  artifactType: GenerationArtifactType;
+};
+
+export type GenerationStatus =
+  | { status: 'idle' }
+  | GenerationPending
+  | { status: 'error'; message: string };
+
+export type AiState = {
+  generation: GenerationStatus;
+  artifacts: ArtifactSummary[];
+  loadingArtifacts: boolean;
+  artifactsError: string | null;
+  /** Active provider chosen by the user. `null` means "first active row
+   *  from `list_provider_configs`". */
+  activeProvider: ProviderConfigView | null;
+
+  setGeneration: (status: GenerationStatus) => void;
+  setArtifacts: (artifacts: ArtifactSummary[]) => void;
+  upsertArtifact: (artifact: ArtifactSummary) => void;
+  setLoadingArtifacts: (loading: boolean) => void;
+  setArtifactsError: (error: string | null) => void;
+  setActiveProvider: (provider: ProviderConfigView | null) => void;
+  reset: () => void;
+};
+
+export const useAiStore = create<AiState>()((set) => ({
+  generation: { status: 'idle' },
+  artifacts: [],
+  loadingArtifacts: false,
+  artifactsError: null,
+  activeProvider: null,
+
+  setGeneration: (generation) => set({ generation }),
+  setArtifacts: (artifacts) => set({ artifacts, artifactsError: null }),
+  upsertArtifact: (artifact) =>
+    set((state) => {
+      const existing = state.artifacts.findIndex((a) => a.id === artifact.id);
+      if (existing === -1) {
+        return { artifacts: [artifact, ...state.artifacts] };
+      }
+      const next = [...state.artifacts];
+      next[existing] = artifact;
+      return { artifacts: next };
+    }),
+  setLoadingArtifacts: (loadingArtifacts) => set({ loadingArtifacts }),
+  setArtifactsError: (artifactsError) => set({ artifactsError, loadingArtifacts: false }),
+  setActiveProvider: (activeProvider) => set({ activeProvider }),
+  reset: () =>
+    set({
+      generation: { status: 'idle' },
+      artifacts: [],
+      loadingArtifacts: false,
+      artifactsError: null,
+    }),
+}));
