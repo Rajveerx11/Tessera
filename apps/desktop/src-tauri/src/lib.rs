@@ -89,6 +89,11 @@ pub fn run() {
             commands::providers::save_provider_config,
             commands::providers::list_provider_configs,
             commands::providers::delete_provider_config,
+            commands::providers::test_provider_connection,
+            commands::artifacts::list_artifacts,
+            commands::artifacts::get_artifact,
+            commands::artifacts::approve_artifact,
+            commands::artifacts::reject_artifact,
             commands::health::health_check,
         ])
         .run(tauri::generate_context!())

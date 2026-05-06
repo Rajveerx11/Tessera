@@ -17,6 +17,7 @@
 //! `providers`, `health`.
 
 pub mod analysis;
+pub mod artifacts;
 pub mod auth;
 pub mod generation;
 pub mod health;
