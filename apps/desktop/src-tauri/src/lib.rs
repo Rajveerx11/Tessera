@@ -63,10 +63,9 @@ pub fn run() {
                 .map_err(|e| e.to_string())?;
             app.manage(pool);
 
-            let data_dir = db_path.parent().unwrap_or(std::path::Path::new("."));
             let crypto_key =
-                utils::crypto::CryptoKey::load_or_generate(data_dir).map_err(|e| e.to_string())?;
-            tracing::info!("encryption key loaded");
+                utils::crypto::CryptoKey::derive_from_secret(&cfg_for_db_path.jwt_secret);
+            tracing::info!("encryption key derived from JWT secret");
             app.manage(crypto_key);
 
             Ok(())
@@ -74,20 +73,31 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             commands::greet,
             commands::init_db,
+            // Auth commands (Phase 6)
             commands::auth::register,
             commands::auth::login,
             commands::auth::refresh_token,
             commands::auth::auth_me,
+            // Project commands (Phase 4/5)
             commands::projects::create_project,
             commands::projects::list_projects,
             commands::projects::get_project,
             commands::projects::delete_project,
+            // Analysis commands (Phase 3/4)
             commands::analysis::analyze_project,
+            // Generation commands (Phase 5)
             commands::generation::generate_artifact,
+            // Provider config commands (Phase 4)
             commands::providers::save_provider_config,
             commands::providers::list_provider_configs,
             commands::providers::delete_provider_config,
+            commands::providers::test_provider_connection,
+            // Health / system commands
             commands::health::health_check,
+            // Hardware detection command (Phase 8)
+            commands::hardware::detect_hardware,
+            // Ollama bootstrap command (Phase 7)
+            commands::ollama::check_ollama_status,
         ])
         .run(tauri::generate_context!())
         .expect("failed to start Tauri application");

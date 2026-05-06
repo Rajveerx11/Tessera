@@ -1,4 +1,8 @@
 import {
+  type ConnectionTestInput,
+  type ConnectionTestResult,
+  ConnectionTestResultSchema,
+  ConnectionTestSchema,
   type ProviderConfigView,
   ProviderConfigViewSchema,
   type SaveProviderArgs,
@@ -29,4 +33,16 @@ export async function listProviderConfigs(): Promise<ProviderConfigView[]> {
 
 export async function deleteProviderConfig(id: string): Promise<void> {
   return invokeVoid('delete_provider_config', { id });
+}
+
+export async function testProviderConnection(
+  args: ConnectionTestInput,
+): Promise<ConnectionTestResult> {
+  const parsed = ConnectionTestSchema.safeParse(args);
+  if (!parsed.success) {
+    throw new IpcError('test_provider_connection', `invalid arguments: ${parsed.error.message}`);
+  }
+  return invokeAndParse('test_provider_connection', ConnectionTestResultSchema, {
+    args: parsed.data,
+  });
 }

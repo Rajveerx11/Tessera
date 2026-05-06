@@ -3,12 +3,12 @@ import { z } from 'zod';
 import { LlmProviderIdSchema } from './llm-provider.schema';
 
 /**
- * Frontend-safe view of a stored provider config — mirrors
+ * Frontend-safe view of a stored provider config - mirrors
  * `ProviderConfigView` from
  * `apps/desktop/src-tauri/src/services/provider_config_service.rs`.
  *
- * The plaintext API key is **never** sent over IPC; `hasApiKey` is the
- * boolean signal the UI uses to render "Key set / Key missing" badges.
+ * The plaintext API key is never sent over IPC; `hasApiKey` is the boolean
+ * signal the UI uses to render "Key set / Key missing" badges.
  */
 export const ProviderConfigViewSchema = z.object({
   id: z.string().uuid(),
@@ -22,8 +22,12 @@ export const ProviderConfigViewSchema = z.object({
 export type ProviderConfigView = z.infer<typeof ProviderConfigViewSchema>;
 
 /**
- * Arguments accepted by `save_provider_config` — mirrors
- * `SaveProviderArgs` in `commands/providers.rs`.
+ * Arguments accepted by `save_provider_config` - mirrors `SaveProviderArgs` in
+ * `commands/providers.rs`.
+ *
+ * Save semantics:
+ * - `apiKey: undefined` preserves any previously stored encrypted key.
+ * - `apiKey: ''` clears the stored key.
  */
 export const SaveProviderArgsSchema = z.object({
   provider: LlmProviderIdSchema,

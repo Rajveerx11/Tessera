@@ -12,6 +12,7 @@ use serde::{Deserialize, Serialize};
 
 use super::EmbeddingProvider;
 use crate::providers::llm::error::LlmError;
+use crate::utils::provider_base_url::normalize_ollama_base_url;
 
 /// Provider name used in `LlmError::provider` and logs.
 pub const PROVIDER_NAME: &str = "ollama";
@@ -71,7 +72,7 @@ impl OllamaEmbeddingProvider {
             })?;
 
         Ok(Self {
-            base_url: base_url.into().trim_end_matches('/').to_string(),
+            base_url: normalize_ollama_base_url(&base_url.into()),
             model: model.into(),
             dimension,
             client,

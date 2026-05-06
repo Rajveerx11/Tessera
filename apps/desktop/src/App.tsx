@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from 'react';
 import type { ZodError } from 'zod';
 
 import { FirstRunWizard } from '@/components/first-run-wizard';
+import { ProviderConfigPanel } from '@/components/provider-config-panel';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { IpcError, system } from '@/lib/ipc';
@@ -277,6 +278,8 @@ export function App() {
           ) : null}
         </div>
       </section>
+
+      <ProviderConfigPanel />
 
       <section className="flex flex-wrap items-center gap-3">
         <Button type="button" onClick={handleGreet}>

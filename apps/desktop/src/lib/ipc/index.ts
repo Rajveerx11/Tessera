@@ -10,7 +10,9 @@
  */
 export * as analysis from './analysis';
 export * as generation from './generation';
+export * as hardware from './hardware';
 export * as health from './health';
+export * as ollama from './ollama';
 export * as projects from './projects';
 export * as providers from './providers';
 export * as system from './system';

@@ -30,7 +30,10 @@ pub fn load_dotenv_optional() {
     let _ignored = dotenvy::from_path(desktop_env);
 }
 
-/// Default Ollama base URL (OpenAI-compatible endpoint).
+/// Default Ollama host root.
+///
+/// Callers layer either native `/api/...` or OpenAI-compatible `/v1/...`
+/// routes on top of this base as needed.
 pub const DEFAULT_OLLAMA_BASE_URL: &str = "http://localhost:11434";
 
 /// Default `SQLite` filename, resolved relative to the user data directory.
@@ -56,7 +59,10 @@ pub const MIN_JWT_SECRET_BYTES: usize = 32;
 /// Strongly-typed configuration assembled from the process environment.
 #[derive(Debug, Clone)]
 pub struct AppConfig {
-    /// Base URL for the Ollama OpenAI-compatible API (`OLLAMA_BASE_URL`).
+    /// Base URL for the Ollama host root (`OLLAMA_BASE_URL`).
+    ///
+    /// Accepts values like `http://localhost:11434`, `.../api`, or `.../v1`;
+    /// downstream helpers normalize them to the host root.
     pub ollama_base_url: String,
     /// Explicit `SQLite` file path (`DB_PATH`) when overriding the default
     /// `<app_local_data_dir>/testing-ide.db` layout (`None` = use app data dir).

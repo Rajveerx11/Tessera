@@ -11,8 +11,12 @@ use crate::error::{AppError, AppResult};
 use crate::providers::factory::{ProviderConfig, ProviderKind};
 use crate::repositories::provider_config_repo::{self, ProviderConfigUpsert};
 use crate::utils::crypto::CryptoKey;
+use crate::utils::provider_base_url::{
+    normalize_ollama_base_url, normalize_openai_compatible_base_url,
+};
 
 const DEFAULT_USER_ID: &str = "00000000-0000-4000-8000-000000000001";
+type EncryptedKeyMaterial = (Option<Vec<u8>>, Option<Vec<u8>>);
 
 /// Frontend-safe view of a provider config. API key shown as masked
 /// boolean, never plaintext.
@@ -37,18 +41,28 @@ pub async fn save_config(
     default_model: Option<String>,
     is_active: bool,
 ) -> AppResult<String> {
-    let (encrypted, nonce) = match api_key {
-        Some(ref key) if !key.trim().is_empty() => {
-            let (ct, n) = crypto.encrypt(key.as_bytes())?;
-            (Some(ct), Some(n))
-        }
-        _ => (None, None),
-    };
+    let provider_kind = ProviderKind::from_str_value(&provider)?;
+    let existing = provider_config_repo::fetch_for_user_provider(
+        pool,
+        DEFAULT_USER_ID,
+        provider_kind.as_str(),
+    )
+    .await?;
+    let (encrypted, nonce) = resolve_encrypted_key_material(crypto, api_key, existing.as_ref())?;
+    let base_url = resolve_base_url(
+        provider_kind,
+        base_url,
+        existing.as_ref().and_then(|row| row.base_url.clone()),
+    );
+    let default_model = resolve_optional_string(
+        default_model,
+        existing.as_ref().and_then(|row| row.default_model.clone()),
+    );
 
     provider_config_repo::upsert(
         pool,
         ProviderConfigUpsert {
-            provider,
+            provider: provider_kind.as_str().to_string(),
             api_key_encrypted: encrypted,
             api_key_nonce: nonce,
             base_url,
@@ -67,7 +81,7 @@ pub async fn list_configs(pool: &SqlitePool) -> AppResult<Vec<ProviderConfigView
         .map(|r| ProviderConfigView {
             id: r.id,
             provider: r.provider,
-            has_api_key: r.api_key_encrypted.is_some(),
+            has_api_key: r.api_key_encrypted.is_some() && r.api_key_nonce.is_some(),
             base_url: r.base_url,
             default_model: r.default_model,
             is_active: r.is_active,
@@ -86,7 +100,7 @@ pub fn build_provider_config(
     crypto: &CryptoKey,
     row: &provider_config_repo::ProviderConfigRow,
 ) -> AppResult<ProviderConfig> {
-    let kind = parse_provider_kind(&row.provider)?;
+    let kind = ProviderKind::from_str_value(&row.provider)?;
 
     let api_key =
         match (&row.api_key_encrypted, &row.api_key_nonce) {
@@ -96,7 +110,12 @@ pub fn build_provider_config(
                     AppError::Internal(anyhow::anyhow!("decrypted key is not UTF-8"))
                 })?)
             }
-            _ => None,
+            (None, None) => None,
+            _ => {
+                return Err(AppError::Internal(anyhow::anyhow!(
+                    "provider config key material is incomplete"
+                )))
+            }
         };
 
     Ok(ProviderConfig {
@@ -106,10 +125,57 @@ pub fn build_provider_config(
     })
 }
 
-fn parse_provider_kind(s: &str) -> AppResult<ProviderKind> {
-    let json = format!("\"{s}\"");
-    serde_json::from_str::<ProviderKind>(&json)
-        .map_err(|_| AppError::InvalidInput(format!("unknown provider kind `{s}`")))
+fn resolve_encrypted_key_material(
+    crypto: &CryptoKey,
+    api_key: Option<String>,
+    existing: Option<&provider_config_repo::ProviderConfigRow>,
+) -> AppResult<EncryptedKeyMaterial> {
+    match api_key {
+        Some(value) => {
+            let trimmed = value.trim();
+            if trimmed.is_empty() {
+                Ok((None, None))
+            } else {
+                let (ciphertext, nonce) = crypto.encrypt(trimmed.as_bytes())?;
+                Ok((Some(ciphertext), Some(nonce)))
+            }
+        }
+        None => Ok(match existing {
+            Some(row) => (row.api_key_encrypted.clone(), row.api_key_nonce.clone()),
+            None => (None, None),
+        }),
+    }
+}
+
+fn resolve_optional_string(value: Option<String>, existing: Option<String>) -> Option<String> {
+    match value {
+        Some(raw) => {
+            let trimmed = raw.trim();
+            if trimmed.is_empty() {
+                None
+            } else {
+                Some(trimmed.to_string())
+            }
+        }
+        None => existing,
+    }
+}
+
+fn resolve_base_url(
+    kind: ProviderKind,
+    value: Option<String>,
+    existing: Option<String>,
+) -> Option<String> {
+    resolve_optional_string(value, existing).map(|raw| normalize_base_url(kind, &raw))
+}
+
+fn normalize_base_url(kind: ProviderKind, raw: &str) -> String {
+    match kind {
+        ProviderKind::Ollama | ProviderKind::OllamaCloud => normalize_ollama_base_url(raw),
+        ProviderKind::OpenAi | ProviderKind::OpenRouter | ProviderKind::Anthropic => {
+            normalize_openai_compatible_base_url(raw)
+        }
+    }
 }
 
 #[cfg(test)]
@@ -194,13 +260,13 @@ mod tests {
             ("ollama-cloud", ProviderKind::OllamaCloud),
         ];
         for (s, expected) in cases {
-            assert_eq!(parse_provider_kind(s).expect(s), expected);
+            assert_eq!(ProviderKind::from_str_value(s).expect(s), expected);
         }
     }
 
     #[test]
     fn parse_provider_kind_rejects_unknown() {
-        let err = parse_provider_kind("unknown-provider").expect_err("must reject");
+        let err = ProviderKind::from_str_value("unknown-provider").expect_err("must reject");
         assert_eq!(err.code(), "INVALID_INPUT");
     }
 
@@ -217,5 +283,108 @@ mod tests {
         let json = serde_json::to_string(&view).expect("serialize");
         assert!(!json.contains("sk-"));
         assert!(json.contains("hasApiKey"));
+    }
+
+    #[tokio::test]
+    async fn save_config_preserves_existing_key_when_api_key_omitted() {
+        let path = tmp_db();
+        let pool = init_pool_at(&path).await.expect("pool");
+        let crypto = test_key();
+
+        let id = save_config(
+            &pool,
+            &crypto,
+            "openai".into(),
+            Some("sk-original".into()),
+            None,
+            Some("gpt-4o".into()),
+            true,
+        )
+        .await
+        .expect("initial save");
+
+        save_config(
+            &pool,
+            &crypto,
+            "openai".into(),
+            None,
+            Some("https://example.test/v1".into()),
+            Some("gpt-4o-mini".into()),
+            true,
+        )
+        .await
+        .expect("update without key");
+
+        let row = provider_config_repo::fetch(&pool, &id)
+            .await
+            .expect("fetch");
+        let config = build_provider_config(&crypto, &row).expect("build");
+
+        assert_eq!(config.api_key.as_deref(), Some("sk-original"));
+        assert_eq!(row.base_url.as_deref(), Some("https://example.test"));
+        assert_eq!(row.default_model.as_deref(), Some("gpt-4o-mini"));
+
+        pool.close().await;
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[tokio::test]
+    async fn save_config_rejects_unknown_provider() {
+        let path = tmp_db();
+        let pool = init_pool_at(&path).await.expect("pool");
+        let crypto = test_key();
+
+        let err = save_config(
+            &pool,
+            &crypto,
+            "made-up-provider".into(),
+            None,
+            None,
+            None,
+            true,
+        )
+        .await
+        .expect_err("must reject");
+
+        assert_eq!(err.code(), "INVALID_INPUT");
+
+        pool.close().await;
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn build_provider_config_rejects_partial_key_material() {
+        let crypto = test_key();
+        let row = provider_config_repo::ProviderConfigRow {
+            id: "cfg".into(),
+            user_id: DEFAULT_USER_ID.into(),
+            provider: "openai".into(),
+            api_key_encrypted: Some(vec![1, 2, 3]),
+            api_key_nonce: None,
+            base_url: None,
+            default_model: None,
+            is_active: true,
+            created_at: "2026-05-06T00:00:00.000Z".into(),
+            updated_at: "2026-05-06T00:00:00.000Z".into(),
+        };
+
+        let err = build_provider_config(&crypto, &row).expect_err("must reject");
+        assert_eq!(err.code(), "INTERNAL_ERROR");
+    }
+
+    #[test]
+    fn normalize_base_url_strips_provider_specific_suffixes() {
+        assert_eq!(
+            normalize_base_url(ProviderKind::Ollama, "http://localhost:11434/api/"),
+            "http://localhost:11434"
+        );
+        assert_eq!(
+            normalize_base_url(ProviderKind::Ollama, "http://localhost:11434/v1/"),
+            "http://localhost:11434"
+        );
+        assert_eq!(
+            normalize_base_url(ProviderKind::OpenAi, "https://api.openai.com/v1/"),
+            "https://api.openai.com"
+        );
     }
 }

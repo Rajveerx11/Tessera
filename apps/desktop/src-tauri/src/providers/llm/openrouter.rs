@@ -58,6 +58,21 @@ impl OpenRouterProvider {
         )
     }
 
+    /// Construct a provider with a custom base URL while keeping the default
+    /// attribution headers.
+    ///
+    /// # Errors
+    ///
+    /// See [`Self::with_options`] — same conditions.
+    pub fn with_base_url(api_key: &str, base_url: impl Into<String>) -> Result<Self, LlmError> {
+        Self::with_options(
+            api_key,
+            base_url,
+            DEFAULT_REFERER.to_string(),
+            DEFAULT_TITLE.to_string(),
+        )
+    }
+
     /// Construct a provider with custom base URL and attribution
     /// headers. Useful for testing and for users who want to override
     /// the public leaderboard attribution.

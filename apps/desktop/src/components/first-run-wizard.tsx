@@ -1,9 +1,10 @@
-import type { HealthStatus } from '@testing-ide/shared';
+import type { HardwareInfo, HealthStatus, OllamaStatus } from '@testing-ide/shared';
 import { useCallback, useEffect, useState } from 'react';
 
+import { OllamaSetupModal } from '@/components/ollama-setup-modal';
 import { Button } from '@/components/ui/button';
-import { recommendTier } from '@/lib/hardware-tier';
-import { health, IpcError } from '@/lib/ipc';
+import { type OllamaSetupState, deriveOllamaSetupState } from '@/lib/ollama-setup';
+import { hardware, health, IpcError, ollama } from '@/lib/ipc';
 import { markOnboardingComplete } from '@/lib/onboarding';
 
 type Props = {
@@ -14,91 +15,199 @@ type Props = {
 /**
  * One-screen onboarding flow shown the first time the desktop app launches.
  *
- * Calls `health_check` to detect OS / RAM / CPU, displays the result, and
- * recommends a local Ollama model tier based on total memory. Persists the
- * "seen" flag in `localStorage` so the wizard does not reappear on the next
- * launch. Settings UI (later phase) will let users re-trigger it.
+ * Probes OS / DB health and system hardware (RAM + GPU) to recommend a local
+ * model tier. It also checks the local Ollama runtime and prompts the user
+ * to run the bootstrap script when the required models are missing.
  */
 export function FirstRunWizard({ onComplete }: Props) {
-  const [status, setStatus] = useState<HealthStatus | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [healthStatus, setHealthStatus] = useState<HealthStatus | null>(null);
+  const [healthError, setHealthError] = useState<string | null>(null);
+  const [hardwareInfo, setHardwareInfo] = useState<HardwareInfo | null>(null);
+  const [hardwareError, setHardwareError] = useState<string | null>(null);
+  const [ollamaStatus, setOllamaStatus] = useState<OllamaStatus | null>(null);
+  const [ollamaError, setOllamaError] = useState<string | null>(null);
+  const [ollamaCheckAttempt, setOllamaCheckAttempt] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
+
     void health
       .healthCheck()
-      .then((s) => {
-        if (!cancelled) setStatus(s);
+      .then((status) => {
+        if (!cancelled) {
+          setHealthStatus(status);
+        }
       })
-      .catch((err: unknown) => {
-        if (cancelled) return;
-        setError(err instanceof IpcError ? err.message : String(err));
+      .catch((error: unknown) => {
+        if (cancelled) {
+          return;
+        }
+        setHealthError(error instanceof IpcError ? error.message : String(error));
       });
+
+    void hardware
+      .detectHardware()
+      .then((info) => {
+        if (!cancelled) {
+          setHardwareInfo(info);
+        }
+      })
+      .catch((error: unknown) => {
+        if (cancelled) {
+          return;
+        }
+        setHardwareError(error instanceof IpcError ? error.message : String(error));
+      });
+
     return () => {
       cancelled = true;
     };
   }, []);
 
-  const handleFinish = useCallback(() => {
+  useEffect(() => {
+    let cancelled = false;
+    setOllamaError(null);
+    setOllamaStatus(null);
+
+    void ollama
+      .checkOllamaStatus()
+      .then((status) => {
+        if (!cancelled) {
+          setOllamaStatus(status);
+        }
+      })
+      .catch((error: unknown) => {
+        if (cancelled) {
+          return;
+        }
+        setOllamaError(error instanceof IpcError ? error.message : String(error));
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [ollamaCheckAttempt]);
+
+  const handleComplete = useCallback(() => {
     markOnboardingComplete();
     onComplete();
   }, [onComplete]);
 
-  const tier = status ? recommendTier(status) : null;
+  const handleRetryOllama = useCallback(() => {
+    setOllamaCheckAttempt((attempt) => attempt + 1);
+  }, []);
+
+  const recommendedModel = hardwareInfo?.recommendedModel ?? 'qwen2.5-coder:7b';
+  const setupState: OllamaSetupState | null = ollamaStatus
+    ? deriveOllamaSetupState(ollamaStatus, [recommendedModel])
+    : null;
+  const isOllamaChecking = ollamaStatus === null && ollamaError === null;
+  const showOllamaSetupModal = setupState?.needsSetup ?? false;
 
   return (
-    <div className="mx-auto flex min-h-screen max-w-2xl flex-col gap-6 p-8">
-      <header className="space-y-1">
-        <h1 className="text-2xl font-semibold tracking-tight">Welcome to Testing IDE</h1>
-        <p className="text-muted-foreground text-sm">
-          Local-first, AI-assisted test artifact generation. We&rsquo;ll detect your hardware and
-          recommend a model that fits.
-        </p>
-      </header>
-
-      <section className="space-y-3 rounded-lg border border-border p-4">
-        <h2 className="text-sm font-medium">System detection</h2>
-        {error ? (
-          <p className="text-destructive text-sm" role="alert">
-            {error}
+    <>
+      <div className="mx-auto flex min-h-screen max-w-2xl flex-col gap-6 p-8">
+        <header className="space-y-1">
+          <h1 className="text-2xl font-semibold tracking-tight">Welcome to Testing IDE</h1>
+          <p className="text-muted-foreground text-sm">
+            Local-first, AI-assisted test artifact generation. We&apos;ll detect your hardware,
+            recommend a model, and verify the local Ollama runtime.
           </p>
-        ) : status === null ? (
-          <p className="text-muted-foreground text-sm">Probing local hardware…</p>
-        ) : (
-          <dl className="grid grid-cols-[max-content_1fr] gap-x-4 gap-y-1 text-sm">
-            <dt className="text-muted-foreground">OS</dt>
-            <dd>
-              {status.osName} {status.osVersion}
-            </dd>
-            <dt className="text-muted-foreground">CPUs</dt>
-            <dd>{status.cpuCount}</dd>
-            <dt className="text-muted-foreground">Memory</dt>
-            <dd>
-              {(status.totalMemoryMb / 1024).toFixed(1)} GB total ·{' '}
-              {(status.availableMemoryMb / 1024).toFixed(1)} GB available
-            </dd>
-            <dt className="text-muted-foreground">Database</dt>
-            <dd>{status.dbOk ? 'reachable' : 'unreachable'}</dd>
-          </dl>
-        )}
-      </section>
+        </header>
 
-      {tier ? (
-        <section className="space-y-2 rounded-lg border border-border p-4">
-          <h2 className="text-sm font-medium">Recommended model</h2>
-          <p className="text-sm">
-            <code className="rounded bg-muted px-1 py-0.5 text-xs">{tier.recommendedModel}</code>
-            <span className="text-muted-foreground"> — {tier.label}</span>
-          </p>
-          <p className="text-muted-foreground text-xs">{tier.rationale}</p>
+        <section className="space-y-3 rounded-lg border border-border p-4">
+          <h2 className="text-sm font-medium">System detection</h2>
+          {healthError || hardwareError ? (
+            <p className="text-destructive text-sm" role="alert">
+              {healthError || hardwareError}
+            </p>
+          ) : healthStatus === null || hardwareInfo === null ? (
+            <p className="text-muted-foreground text-sm">Probing local hardware...</p>
+          ) : (
+            <dl className="grid grid-cols-[max-content_1fr] gap-x-4 gap-y-1 text-sm">
+              <dt className="text-muted-foreground">OS</dt>
+              <dd>
+                {healthStatus.osName} {healthStatus.osVersion}
+              </dd>
+              <dt className="text-muted-foreground">CPUs</dt>
+              <dd>{healthStatus.cpuCount}</dd>
+              <dt className="text-muted-foreground">Memory</dt>
+              <dd>{hardwareInfo.ramGb} GB total</dd>
+              {hardwareInfo.gpuName && (
+                <>
+                  <dt className="text-muted-foreground">GPU</dt>
+                  <dd>
+                    {hardwareInfo.gpuName} ({hardwareInfo.gpuVramGb} GB VRAM)
+                  </dd>
+                </>
+              )}
+              <dt className="text-muted-foreground">Database</dt>
+              <dd>{healthStatus.dbOk ? 'reachable' : 'unreachable'}</dd>
+            </dl>
+          )}
         </section>
-      ) : null}
 
-      <footer className="flex justify-end">
-        <Button type="button" onClick={handleFinish} disabled={status === null && error === null}>
-          Get started
-        </Button>
-      </footer>
-    </div>
+        {hardwareInfo ? (
+          <section className="space-y-2 rounded-lg border border-border p-4">
+            <h2 className="text-sm font-medium">Recommended model</h2>
+            <p className="text-sm">
+              <code className="rounded bg-muted px-1 py-0.5 text-xs">
+                {hardwareInfo.recommendedModel}
+              </code>
+            </p>
+            <p className="text-muted-foreground text-xs">
+              Based on your {hardwareInfo.ramGb} GB RAM
+              {hardwareInfo.gpuVramGb ? ` and ${hardwareInfo.gpuVramGb} GB VRAM` : ''}.
+            </p>
+          </section>
+        ) : null}
+
+        <section className="space-y-3 rounded-lg border border-border p-4">
+          <div className="flex items-center justify-between gap-3">
+            <h2 className="text-sm font-medium">Local AI runtime</h2>
+            <Button type="button" size="sm" variant="outline" onClick={handleRetryOllama}>
+              Re-check
+            </Button>
+          </div>
+          {ollamaError ? (
+            <p className="text-destructive text-sm" role="alert">
+              {ollamaError}
+            </p>
+          ) : isOllamaChecking ? (
+            <p className="text-muted-foreground text-sm">Checking Ollama status...</p>
+          ) : setupState ? (
+            <dl className="grid grid-cols-[max-content_1fr] gap-x-4 gap-y-1 text-sm">
+              <dt className="text-muted-foreground">Installed</dt>
+              <dd>{setupState.installed ? 'yes' : 'no'}</dd>
+              <dt className="text-muted-foreground">Running</dt>
+              <dd>{setupState.running ? 'yes' : 'no'}</dd>
+              <dt className="text-muted-foreground">Models</dt>
+              <dd>{ollamaStatus?.models.length ?? 0}</dd>
+            </dl>
+          ) : null}
+        </section>
+
+        <footer className="flex justify-end">
+          <Button
+            type="button"
+            onClick={handleComplete}
+            disabled={hardwareInfo === null && hardwareError === null}
+          >
+            Get started
+          </Button>
+        </footer>
+      </div>
+
+      {showOllamaSetupModal ? (
+        <OllamaSetupModal
+          error={ollamaError}
+          isChecking={isOllamaChecking}
+          recommendedModel={recommendedModel}
+          setupState={setupState}
+          onRetry={handleRetryOllama}
+          onSkip={handleComplete}
+        />
+      ) : null}
+    </>
   );
 }

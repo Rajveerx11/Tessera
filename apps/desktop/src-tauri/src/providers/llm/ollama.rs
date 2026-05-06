@@ -15,6 +15,7 @@ use super::error::LlmError;
 use super::openai_compat;
 use super::types::{GenerateRequest, ProviderCapabilities};
 use super::{ChunkStream, LlmProvider};
+use crate::utils::provider_base_url::normalize_ollama_base_url;
 
 /// Provider name used in `LlmError::provider` and logs.
 pub const PROVIDER_NAME: &str = "ollama";
@@ -98,7 +99,7 @@ impl LlmProvider for OllamaProvider {
 /// Strip a trailing `/` from `base_url` so endpoint construction never
 /// produces double slashes.
 fn normalize_base_url(raw: &str) -> String {
-    raw.trim_end_matches('/').to_string()
+    normalize_ollama_base_url(raw)
 }
 
 #[cfg(test)]

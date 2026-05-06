@@ -112,6 +112,26 @@ pub async fn fetch(pool: &SqlitePool, id: &str) -> AppResult<ProviderConfigRow> 
         .map(decode_row)
 }
 
+/// Fetch the config row for one `(user_id, provider)` pair, if present.
+pub async fn fetch_for_user_provider(
+    pool: &SqlitePool,
+    user_id: &str,
+    provider: &str,
+) -> AppResult<Option<ProviderConfigRow>> {
+    let row: Option<RawRow> = sqlx::query_as(
+        "SELECT id, user_id, provider, api_key_encrypted, api_key_nonce, \
+                base_url, default_model, is_active, created_at, updated_at \
+         FROM user_provider_configs \
+         WHERE user_id = ? AND provider = ?",
+    )
+    .bind(user_id)
+    .bind(provider)
+    .fetch_optional(pool)
+    .await?;
+
+    Ok(row.map(decode_row))
+}
+
 pub async fn list_for_user(pool: &SqlitePool, user_id: &str) -> AppResult<Vec<ProviderConfigRow>> {
     let rows: Vec<RawRow> = sqlx::query_as(
         "SELECT id, user_id, provider, api_key_encrypted, api_key_nonce, \
@@ -297,6 +317,35 @@ mod tests {
         assert_eq!(list.len(), 2);
         assert_eq!(list[0].provider, "anthropic");
         assert_eq!(list[1].provider, "openai");
+
+        pool.close().await;
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[tokio::test]
+    async fn fetch_for_user_provider_returns_matching_row() {
+        let (pool, path) = seed_pool().await;
+        let id = upsert(
+            &pool,
+            ProviderConfigUpsert {
+                provider: "openrouter".into(),
+                api_key_encrypted: Some(vec![1, 2, 3]),
+                api_key_nonce: Some(vec![4, 5, 6]),
+                base_url: Some("https://openrouter.ai/api".into()),
+                default_model: Some("openai/gpt-4o-mini".into()),
+                is_active: true,
+            },
+        )
+        .await
+        .expect("insert");
+
+        let row = fetch_for_user_provider(&pool, DEFAULT_USER_ID, "openrouter")
+            .await
+            .expect("fetch")
+            .expect("row");
+
+        assert_eq!(row.id, id);
+        assert_eq!(row.provider, "openrouter");
 
         pool.close().await;
         let _ = std::fs::remove_file(&path);

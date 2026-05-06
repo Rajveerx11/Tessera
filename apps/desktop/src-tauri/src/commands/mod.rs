@@ -13,13 +13,15 @@
 //! at the function level rather than tightening the lint globally — the
 //! constraint is real and Tauri-imposed.
 //!
-//! Sub-modules added in Phase 6: `projects`, `analysis`, `generation`,
-//! `providers`, `health`.
+//! Sub-modules: `auth`, `analysis`, `generation`, `hardware`, `health`,
+//! `ollama`, `projects`, `providers`.
 
 pub mod analysis;
 pub mod auth;
 pub mod generation;
+pub mod hardware;
 pub mod health;
+pub mod ollama;
 pub mod projects;
 pub mod providers;
 
@@ -45,8 +47,8 @@ pub struct InitDbResponse {
 
 /// Placeholder command to verify IPC wiring end-to-end.
 #[tauri::command]
-#[allow(clippy::needless_pass_by_value)] // Tauri IPC requires owned argument types.
 #[must_use]
+#[allow(clippy::needless_pass_by_value)] // Tauri IPC requires owned argument types.
 pub fn greet(name: String) -> String {
     let trimmed = name.trim();
     if trimmed.is_empty() {

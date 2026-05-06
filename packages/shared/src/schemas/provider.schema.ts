@@ -68,8 +68,9 @@ export type ConnectionTestInput = z.infer<typeof ConnectionTestSchema>;
  */
 export const ConnectionTestResultSchema = z.object({
   ok: z.boolean(),
-  message: z.string().optional(),
-  latencyMs: z.number().nonnegative().optional(),
+  message: z.string(),
+  latencyMs: z.number().int().nonnegative(),
+  models: z.array(z.string()),
 });
 
 export type ConnectionTestResult = z.infer<typeof ConnectionTestResultSchema>;

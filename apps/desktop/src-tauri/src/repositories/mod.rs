@@ -10,6 +10,10 @@
 //!   brute-force cosine search per ADR-0001 / ADR-0002.
 //! - [`artifact_repo`] (Phase 5) — generated-artifact persistence with
 //!   chained version-tracking for regenerations.
+//! - [`user_repo`] (Phase 6) — user account persistence.
+//! - [`project_file_repo`] (Phase 4) — project file metadata persistence.
+//! - [`project_repo`] (Phase 4) — project-level persistence.
+//! - [`provider_config_repo`] (Phase 4) — provider configuration persistence.
 //!
 pub mod artifact_repo;
 pub mod chunk_repo;

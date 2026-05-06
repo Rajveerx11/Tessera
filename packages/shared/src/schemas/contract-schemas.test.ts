@@ -5,8 +5,10 @@ import {
   ArtifactSchema,
   CodeChunkSchema,
   ConnectionTestSchema,
+  ConnectionTestResultSchema,
   GenerateArgsSchema,
   GenerateResponseSchema,
+  HardwareInfoSchema,
   HealthStatusSchema,
   JWTPayloadSchema,
   LoginSchema,
@@ -77,6 +79,18 @@ describe('ConnectionTestSchema', () => {
       defaultModel: 'gpt-4o-mini',
     });
     expect(parsed.provider).toBe('openai');
+  });
+});
+
+describe('ConnectionTestResultSchema', () => {
+  it('accepts a successful connection result with model ids', () => {
+    const parsed = ConnectionTestResultSchema.parse({
+      ok: true,
+      message: 'Connection successful.',
+      latencyMs: 125,
+      models: ['gpt-4o-mini', 'gpt-4o'],
+    });
+    expect(parsed.models).toContain('gpt-4o-mini');
   });
 });
 
@@ -169,6 +183,18 @@ describe('HealthStatusSchema', () => {
         cpuCount: 1,
       }),
     ).toThrow();
+  });
+});
+
+describe('HardwareInfoSchema', () => {
+  it('accepts the supported model recommendation literals', () => {
+    const parsed = HardwareInfoSchema.parse({
+      ramGb: 32,
+      gpuVramGb: 24,
+      gpuName: 'NVIDIA GeForce RTX 4090',
+      recommendedModel: 'qwen2.5-coder:32b',
+    });
+    expect(parsed.recommendedModel).toBe('qwen2.5-coder:32b');
   });
 });
 

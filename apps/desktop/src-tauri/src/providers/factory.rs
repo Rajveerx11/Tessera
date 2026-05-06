@@ -18,6 +18,7 @@ use super::llm::openai::OpenAiProvider;
 use super::llm::openrouter::OpenRouterProvider;
 use super::llm::LlmProvider;
 use crate::config::DEFAULT_OLLAMA_BASE_URL;
+use crate::error::{AppError, AppResult};
 
 /// Discriminator used to match the provider kind selected by the user
 /// in the Settings UI. Stored on `user_provider_configs.provider`.
@@ -52,6 +53,25 @@ impl ProviderKind {
             Self::OpenAi => "openai",
             Self::OpenRouter => "openrouter",
             Self::Anthropic => "anthropic",
+        }
+    }
+
+    /// Parse the stable wire/database string used across IPC and `SQLite`.
+    ///
+    /// # Errors
+    ///
+    /// Returns `AppError::InvalidInput` when `value` does not match one of the
+    /// supported provider identifiers.
+    pub fn from_str_value(value: &str) -> AppResult<Self> {
+        match value.trim() {
+            "ollama" => Ok(Self::Ollama),
+            "ollama-cloud" => Ok(Self::OllamaCloud),
+            "openai" => Ok(Self::OpenAi),
+            "openrouter" => Ok(Self::OpenRouter),
+            "anthropic" => Ok(Self::Anthropic),
+            _ => Err(AppError::InvalidInput(format!(
+                "unknown provider kind `{value}`"
+            ))),
         }
     }
 
@@ -123,7 +143,12 @@ pub fn build_llm_provider(config: &ProviderConfig) -> Result<Arc<dyn LlmProvider
                 .api_key
                 .as_deref()
                 .ok_or_else(missing_api_key(ProviderKind::OpenRouter))?;
-            Ok(Arc::new(OpenRouterProvider::new(key)?))
+            let provider = if let Some(base) = config.base_url.as_deref() {
+                OpenRouterProvider::with_base_url(key, base)?
+            } else {
+                OpenRouterProvider::new(key)?
+            };
+            Ok(Arc::new(provider))
         }
         ProviderKind::Anthropic => {
             let key = config
@@ -192,6 +217,9 @@ fn missing_base_url(label: &'static str) -> impl FnOnce() -> LlmError {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::providers::llm::types::{Chunk, GenerateRequest, Message};
+    use futures::StreamExt;
+    use mockito::Server;
 
     #[test]
     fn provider_kind_round_trips_through_serde() {
@@ -282,6 +310,46 @@ mod tests {
         assert_eq!(name, "openrouter");
     }
 
+    #[tokio::test(flavor = "multi_thread")]
+    async fn build_llm_provider_openrouter_honors_custom_base_url() {
+        let mut server = Server::new_async().await;
+        let body = "data: {\"choices\":[{\"delta\":{\"content\":\"ok\"}}]}\n\n\
+                    data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}]}\n\n";
+        let mock = server
+            .mock("POST", "/v1/chat/completions")
+            .match_header("authorization", "Bearer sk-or-test")
+            .with_status(200)
+            .with_body(body)
+            .create_async()
+            .await;
+
+        let cfg = ProviderConfig {
+            kind: ProviderKind::OpenRouter,
+            base_url: Some(server.url()),
+            api_key: Some("sk-or-test".into()),
+        };
+        let provider = build_llm_provider(&cfg).expect("custom base ok");
+        let request = GenerateRequest {
+            model: "qwen/qwen2.5-coder-32b-instruct".into(),
+            messages: vec![Message::user("hi")],
+            tools: Vec::new(),
+            temperature: None,
+            max_tokens: None,
+            stop_sequences: Vec::new(),
+        };
+
+        let mut stream = provider.stream(request);
+        let mut text = String::new();
+        while let Some(chunk) = stream.next().await {
+            if let Chunk::TextDelta(delta) = chunk.expect("chunk") {
+                text.push_str(&delta);
+            }
+        }
+
+        assert_eq!(text, "ok");
+        mock.assert_async().await;
+    }
+
     #[test]
     fn build_llm_provider_openai_custom_base_url() {
         let cfg = ProviderConfig {
@@ -333,5 +401,25 @@ mod tests {
             let json = serde_json::to_string(&kind).expect("serialize");
             assert_eq!(json, format!("\"{}\"", kind.as_str()));
         }
+    }
+
+    #[test]
+    fn provider_kind_from_str_value_matches_as_str() {
+        for kind in [
+            ProviderKind::Ollama,
+            ProviderKind::OllamaCloud,
+            ProviderKind::OpenAi,
+            ProviderKind::OpenRouter,
+            ProviderKind::Anthropic,
+        ] {
+            let parsed = ProviderKind::from_str_value(kind.as_str()).expect("parse");
+            assert_eq!(parsed, kind);
+        }
+    }
+
+    #[test]
+    fn provider_kind_from_str_value_rejects_unknown() {
+        let err = ProviderKind::from_str_value("unknown-provider").expect_err("must reject");
+        assert_eq!(err.code(), "INVALID_INPUT");
     }
 }
