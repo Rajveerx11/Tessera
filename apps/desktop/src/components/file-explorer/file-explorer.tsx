@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Tree, type NodeRendererProps } from 'react-arborist';
 
 import { filesystem, IpcError } from '@/lib/ipc';
+import { openFileInEditor } from '@/lib/open-file';
 import { useWorkspaceStore, type FsEntry } from '@/stores/workspace-store';
 
 /**
@@ -89,6 +90,9 @@ export function FileExplorer() {
               const first = nodes[0];
               if (first === undefined) return;
               setSelectedPath(first.data.relativePath);
+              if (first.data.kind === 'file') {
+                openFileInEditor(first.data);
+              }
             }}
           >
             {NodeRow}
