@@ -10,12 +10,14 @@ import {
   XCircle,
 } from 'lucide-react';
 import type { ReactNode } from 'react';
-import { useCallback, useEffect, useMemo } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { Button } from '@/components/ui/button';
 import { artifacts as artifactsIpc, generation, IpcError, providers } from '@/lib/ipc';
 import { useAiStore } from '@/stores/ai-store';
 import { useWorkspaceStore } from '@/stores/workspace-store';
+
+import { ArtifactDetailDrawer } from './artifact-detail-drawer';
 
 const GENERATE_BUTTONS: ReadonlyArray<{
   id: GenerationArtifactType;
@@ -54,6 +56,8 @@ export function AiPanel() {
   const upsertArtifact = useAiStore((s) => s.upsertArtifact);
   const setLoadingArtifacts = useAiStore((s) => s.setLoadingArtifacts);
   const setArtifactsError = useAiStore((s) => s.setArtifactsError);
+
+  const [openArtifact, setOpenArtifact] = useState<ArtifactSummary | null>(null);
 
   // Pull the active provider config the first time the panel renders
   // and after a project loads. The generation panel cannot run without
@@ -273,11 +277,23 @@ export function AiPanel() {
         ) : (
           <ul className="space-y-2">
             {reviewQueue.map((a) => (
-              <ArtifactRow key={a.id} artifact={a} onApprove={handleApprove} onReject={handleReject} />
+              <ArtifactRow
+                key={a.id}
+                artifact={a}
+                onApprove={handleApprove}
+                onReject={handleReject}
+                onOpen={setOpenArtifact}
+              />
             ))}
           </ul>
         )}
       </div>
+      {openArtifact !== null ? (
+        <ArtifactDetailDrawer
+          summary={openArtifact}
+          onClose={() => setOpenArtifact(null)}
+        />
+      ) : null}
     </div>
   );
 }
@@ -286,25 +302,34 @@ function ArtifactRow({
   artifact,
   onApprove,
   onReject,
+  onOpen,
 }: {
   artifact: ArtifactSummary;
   onApprove: (a: ArtifactSummary) => void;
   onReject: (a: ArtifactSummary) => void;
+  onOpen: (a: ArtifactSummary) => void;
 }) {
   const isPending = artifact.status === 'draft' || artifact.status === 'in_review';
   return (
     <li className="rounded-md border border-border bg-card p-2 text-xs">
-      <div className="flex items-start justify-between gap-2">
-        <div className="min-w-0 flex-1">
-          <p className="truncate font-medium" title={artifact.title}>
-            {artifact.title}
-          </p>
-          <p className="text-muted-foreground mt-0.5 text-[10px]">
-            {artifact.artifactType} · v{artifact.version} · {artifact.model}
-          </p>
+      <button
+        type="button"
+        onClick={() => onOpen(artifact)}
+        className="hover:bg-muted/30 -m-2 mb-0 block w-[calc(100%+1rem)] rounded-t-md p-2 text-left"
+        aria-label={`Open ${artifact.title}`}
+      >
+        <div className="flex items-start justify-between gap-2">
+          <div className="min-w-0 flex-1">
+            <p className="truncate font-medium" title={artifact.title}>
+              {artifact.title}
+            </p>
+            <p className="text-muted-foreground mt-0.5 text-[10px]">
+              {artifact.artifactType} · v{artifact.version} · {artifact.model}
+            </p>
+          </div>
+          <StatusBadge status={artifact.status} />
         </div>
-        <StatusBadge status={artifact.status} />
-      </div>
+      </button>
       {isPending ? (
         <div className="mt-2 flex items-center gap-1">
           <Button

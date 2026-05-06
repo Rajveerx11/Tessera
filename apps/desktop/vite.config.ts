@@ -20,6 +20,6 @@ export default defineConfig({
   envPrefix: ['VITE_', 'TAURI_'],
   test: {
     environment: 'node',
-    include: ['src/**/*.{test,spec}.ts'],
+    include: ['src/**/*.{test,spec}.{ts,tsx}'],
   },
 });
