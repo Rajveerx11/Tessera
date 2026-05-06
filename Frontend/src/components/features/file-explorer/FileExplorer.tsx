@@ -19,8 +19,15 @@ export function FileExplorer() {
 
   return (
     <div className="flex flex-col h-full overflow-hidden text-sm">
-      <div className="px-3 py-2 font-semibold text-xs tracking-wider uppercase text-muted-foreground shrink-0 bg-background/50 backdrop-blur-sm sticky top-0 z-10 border-b border-border/50">
-        EXPLORER
+      <div className="px-3 py-2 font-semibold text-xs tracking-wider uppercase text-muted-foreground shrink-0 bg-background/50 backdrop-blur-sm sticky top-0 z-10 border-b border-border/50 flex items-center justify-between">
+        <span>EXPLORER</span>
+        <button 
+          onClick={() => document.querySelector<HTMLInputElement>('input[type="file"]')?.click()}
+          className="p-1 rounded-md hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
+          title="Open Folder"
+        >
+          <FolderOpen className="w-3.5 h-3.5" />
+        </button>
       </div>
       <div className="flex-1 overflow-auto py-2">
         <Tree
