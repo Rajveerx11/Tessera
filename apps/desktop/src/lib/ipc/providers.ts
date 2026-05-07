@@ -5,10 +5,6 @@ import {
   ConnectionTestSchema,
   type ProviderConfigView,
   ProviderConfigViewSchema,
-  type ProviderConnectionTestArgs,
-  ProviderConnectionTestArgsSchema,
-  type ProviderConnectionTestResult,
-  ProviderConnectionTestResultSchema,
   type SaveProviderArgs,
   SaveProviderArgsSchema,
 } from '@testing-ide/shared';
@@ -40,7 +36,6 @@ export async function deleteProviderConfig(id: string): Promise<void> {
 }
 
 export async function testProviderConnection(
-<<<<<<< HEAD
   args: ConnectionTestInput,
 ): Promise<ConnectionTestResult> {
   const parsed = ConnectionTestSchema.safeParse(args);
@@ -48,18 +43,6 @@ export async function testProviderConnection(
     throw new IpcError('test_provider_connection', `invalid arguments: ${parsed.error.message}`);
   }
   return invokeAndParse('test_provider_connection', ConnectionTestResultSchema, {
-=======
-  args: ProviderConnectionTestArgs,
-): Promise<ProviderConnectionTestResult> {
-  const parsed = ProviderConnectionTestArgsSchema.safeParse(args);
-  if (!parsed.success) {
-    throw new IpcError(
-      'test_provider_connection',
-      `invalid arguments: ${parsed.error.message}`,
-    );
-  }
-  return invokeAndParse('test_provider_connection', ProviderConnectionTestResultSchema, {
->>>>>>> 2c616a1c9c3a27b5a267ef3d09cbc02b439d3cff
     args: parsed.data,
   });
 }

@@ -314,6 +314,7 @@ describe('ProviderConnectionTestResultSchema', () => {
       ok: true,
       message: 'Ollama reachable',
       latencyMs: 12,
+      models: ['qwen2.5-coder:7b'],
     });
     expect(parsed.ok).toBe(true);
     expect(parsed.latencyMs).toBe(12);
@@ -325,6 +326,7 @@ describe('ProviderConnectionTestResultSchema', () => {
         ok: false,
         message: 'failed',
         latencyMs: -1,
+        models: [],
       }),
     ).toThrow();
   });

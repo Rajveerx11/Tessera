@@ -1,4 +1,4 @@
-import type { Project } from '@testing-ide/shared';
+import type { AnalysisOutcome, Project } from '@testing-ide/shared';
 import { create } from 'zustand';
 
 /**
@@ -28,12 +28,19 @@ export type WorkspaceState = {
   loadingTree: boolean;
   treeError: string | null;
   selectedPath: string | null;
+  analysis:
+    | { status: 'idle' }
+    | { status: 'pending' }
+    | { status: 'error'; message: string }
+    | { status: 'ready'; outcome: AnalysisOutcome };
 
   setProject: (project: Project | null) => void;
+  updateProject: (project: Project | null) => void;
   setTree: (tree: FsEntry[]) => void;
   setTreeLoading: (loading: boolean) => void;
   setTreeError: (error: string | null) => void;
   setSelectedPath: (path: string | null) => void;
+  setAnalysis: (analysis: WorkspaceState['analysis']) => void;
   /** Replace the children of the entry at `relativePath`. Used after a
    *  lazy directory expand. */
   setChildren: (relativePath: string, children: FsEntry[]) => void;
@@ -58,6 +65,7 @@ export const useWorkspaceStore = create<WorkspaceState>()((set) => ({
   loadingTree: false,
   treeError: null,
   selectedPath: null,
+  analysis: { status: 'idle' },
 
   setProject: (project) =>
     set({
@@ -65,11 +73,14 @@ export const useWorkspaceStore = create<WorkspaceState>()((set) => ({
       tree: [],
       treeError: null,
       selectedPath: null,
+      analysis: { status: 'idle' },
     }),
+  updateProject: (project) => set({ project }),
   setTree: (tree) => set({ tree, treeError: null }),
   setTreeLoading: (loadingTree) => set({ loadingTree }),
   setTreeError: (treeError) => set({ treeError, loadingTree: false }),
   setSelectedPath: (selectedPath) => set({ selectedPath }),
+  setAnalysis: (analysis) => set({ analysis }),
   setChildren: (relativePath, children) =>
     set((state) => ({ tree: replaceChildren(state.tree, relativePath, children) })),
   reset: () =>
@@ -79,5 +90,6 @@ export const useWorkspaceStore = create<WorkspaceState>()((set) => ({
       loadingTree: false,
       treeError: null,
       selectedPath: null,
+      analysis: { status: 'idle' },
     }),
 }));

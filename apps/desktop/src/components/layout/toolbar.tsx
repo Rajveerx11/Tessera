@@ -1,8 +1,8 @@
-import { FolderOpen, Settings } from 'lucide-react';
+import { FolderOpen, Loader2, Settings } from 'lucide-react';
 import { useCallback } from 'react';
 
 import { Button } from '@/components/ui/button';
-import { filesystem, IpcError, projects } from '@/lib/ipc';
+import { analysis, filesystem, IpcError, projects } from '@/lib/ipc';
 import { useEditorStore } from '@/stores/editor-store';
 import { useUiStore } from '@/stores/ui-store';
 import { useWorkspaceStore } from '@/stores/workspace-store';
@@ -16,12 +16,16 @@ export function Toolbar() {
   const setSettingsOpen = useUiStore((s) => s.setSettingsOpen);
   const project = useWorkspaceStore((s) => s.project);
   const setProject = useWorkspaceStore((s) => s.setProject);
+  const updateProject = useWorkspaceStore((s) => s.updateProject);
   const setTree = useWorkspaceStore((s) => s.setTree);
   const setTreeLoading = useWorkspaceStore((s) => s.setTreeLoading);
   const setTreeError = useWorkspaceStore((s) => s.setTreeError);
+  const analysisStatus = useWorkspaceStore((s) => s.analysis);
+  const setAnalysisStatus = useWorkspaceStore((s) => s.setAnalysis);
 
   const handleOpenFolder = useCallback(() => {
     setTreeError(null);
+    setAnalysisStatus({ status: 'idle' });
     void (async () => {
       let path: string | null;
       try {
@@ -47,7 +51,43 @@ export function Toolbar() {
         setTreeLoading(false);
       }
     })();
-  }, [setProject, setTree, setTreeError, setTreeLoading]);
+  }, [setAnalysisStatus, setProject, setTree, setTreeError, setTreeLoading]);
+
+  const handleAnalyze = useCallback(() => {
+    if (project === null) {
+      return;
+    }
+
+    const currentProject = project;
+    setAnalysisStatus({ status: 'pending' });
+    updateProject({ ...currentProject, status: 'analyzing' });
+
+    void (async () => {
+      try {
+        const outcome = await analysis.analyzeProject(currentProject.id);
+        setAnalysisStatus({ status: 'ready', outcome });
+        try {
+          const refreshed = await projects.getProject(currentProject.id);
+          updateProject(refreshed);
+        } catch {
+          updateProject({
+            ...currentProject,
+            fileCount: outcome.filesDiscovered,
+            totalSizeBytes: outcome.totalSizeBytes,
+            status: 'ready',
+          });
+        }
+      } catch (err) {
+        setAnalysisStatus({
+          status: 'error',
+          message: err instanceof IpcError ? err.message : String(err),
+        });
+        updateProject({ ...currentProject, status: 'error' });
+      }
+    })();
+  }, [project, setAnalysisStatus, updateProject]);
+
+  const isAnalyzing = analysisStatus.status === 'pending';
 
   return (
     <header className="flex h-10 shrink-0 items-center justify-between border-b border-border bg-card px-3">
@@ -63,6 +103,18 @@ export function Toolbar() {
         <Button type="button" size="sm" variant="ghost" onClick={handleOpenFolder}>
           <FolderOpen className="size-4" />
           Open folder
+        </Button>
+        <Button
+          type="button"
+          size="sm"
+          variant="ghost"
+          onClick={handleAnalyze}
+          disabled={project === null || isAnalyzing}
+          aria-label="Analyze project"
+          data-testid="analyze-project"
+        >
+          {isAnalyzing ? <Loader2 className="size-4 animate-spin" /> : null}
+          {isAnalyzing ? 'Analyzing...' : 'Analyze'}
         </Button>
         <Button
           type="button"

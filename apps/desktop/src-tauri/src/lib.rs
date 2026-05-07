@@ -42,6 +42,7 @@ use tauri::Manager;
 /// may not yet be live).
 pub fn run() {
     let cfg = config::AppConfig::from_env().expect("failed to load configuration");
+    let _sentry_guard = utils::telemetry::init_sentry(cfg.sentry_dsn.as_deref());
     utils::telemetry::init(&cfg.log_level).expect("failed to initialize tracing");
 
     tracing::info!(
@@ -94,14 +95,11 @@ pub fn run() {
             commands::providers::list_provider_configs,
             commands::providers::delete_provider_config,
             commands::providers::test_provider_connection,
-<<<<<<< HEAD
-            // Health / system commands
-=======
             commands::artifacts::list_artifacts,
             commands::artifacts::get_artifact,
             commands::artifacts::approve_artifact,
             commands::artifacts::reject_artifact,
->>>>>>> 2c616a1c9c3a27b5a267ef3d09cbc02b439d3cff
+            // Health / system commands
             commands::health::health_check,
             // Hardware detection command (Phase 8)
             commands::hardware::detect_hardware,
