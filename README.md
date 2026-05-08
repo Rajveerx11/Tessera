@@ -1,98 +1,115 @@
-# Testing IDE
+<div align="center">
 
-Desktop-first, local-first AI testing workspace built with Tauri, React, Rust, SQLite, and Ollama.
+# Tessera
 
-The happy path for a new developer is:
+**Local-first AI testing IDE — turn any codebase into a full QA dossier without sending source to the cloud.**
 
-1. Clone the repo
-2. Install workspace dependencies
-3. Bootstrap Ollama models
-4. Run the Tauri desktop app
+[![CI](https://github.com/Rajveerx11/Testing-IDE/actions/workflows/ci.yml/badge.svg)](https://github.com/Rajveerx11/Testing-IDE/actions/workflows/ci.yml)
+[![Release](https://github.com/Rajveerx11/Testing-IDE/actions/workflows/release.yml/badge.svg)](https://github.com/Rajveerx11/Testing-IDE/actions/workflows/release.yml)
+[![Tauri 2](https://img.shields.io/badge/Tauri-2.0-24C8DB?logo=tauri)](https://tauri.app/)
+[![Rust](https://img.shields.io/badge/Rust-1.81+-CE422B?logo=rust)](https://www.rust-lang.org/)
+[![React](https://img.shields.io/badge/React-19-61DAFB?logo=react)](https://react.dev/)
+[![Ollama](https://img.shields.io/badge/Ollama-local-000000?logo=ollama)](https://ollama.com/)
+[![License: Pending](https://img.shields.io/badge/license-pending-lightgrey.svg)](#license)
 
-If your machine already has Rust, Node, and Ollama installed, you can get to a working app in well under 10 minutes.
+</div>
 
-## Prerequisites
+> A **tessera** is one tile of a mosaic. Tessera the IDE assembles thousands of code chunks, AST nodes, and test cases into a single, reviewable picture of your software's quality.
 
-Install these before you start:
+---
 
-- `Rust 1.81+` via [rustup](https://rustup.rs/)
-- `Node.js 20+`
-- `pnpm 10+` via `corepack enable`
-- `Ollama` via [ollama.com](https://ollama.com/)
-- `Docker` if you want the optional shared `postgres + ollama` services
+## Table of contents
 
-Platform notes:
+- [What it is](#what-it-is)
+- [Why Tessera](#why-tessera)
+- [Artifact types](#artifact-types)
+- [Architecture](#architecture)
+- [Tech stack](#tech-stack)
+- [LLM providers](#llm-providers)
+- [Quick start](#quick-start)
+- [Environment](#environment)
+- [Running the app](#running-the-app)
+- [Testing](#testing)
+- [Release builds](#release-builds)
+- [Repo layout](#repo-layout)
+- [Status & roadmap](#status--roadmap)
+- [Contributing](#contributing)
+- [License](#license)
 
-- Windows: supported out of the box
-- macOS: install Xcode Command Line Tools
-- Ubuntu/Debian: install Tauri system packages:
+---
 
-```bash
-sudo apt-get update
-sudo apt-get install -y \
-  libwebkit2gtk-4.1-dev \
-  libssl-dev \
-  libgtk-3-dev \
-  libayatana-appindicator3-dev \
-  librsvg2-dev \
-  build-essential \
-  curl \
-  wget \
-  file
-```
+## What it is
+
+Tessera is a desktop IDE that performs **static-only** analysis on a codebase and uses an LLM to generate structured QA artifacts: test plans, test cases, defect reports, and bug reports. It runs fully on your machine — local LLM, local SQLite, local AST parsing — so it works on closed-source code, regulated codebases, and offline networks.
+
+- Open any folder via the native picker.
+- Tessera walks the tree, parses source with Tree-sitter, embeds chunks with Ollama, and stores everything in an embedded SQLite database with a `sqlite-vec` index.
+- Click an artifact button (Context, Test plan, Test cases, Defects, Bugs). The active LLM provider is invoked with a versioned prompt + JSON-Schema tool call.
+- Every output is validated against a Zod schema in `packages/shared/` before it lands in the review queue.
+- Approve, reject, regenerate-with-feedback, or export to Markdown.
+
+Source code never leaves the machine when the local Ollama provider is selected.
+
+---
+
+## Why Tessera
+
+| Tool | Generates code? | Generates QA docs? | Static analysis? | Works on closed-source? |
+|------|----------------|--------------------|------------------|------------------------|
+| Cursor / Copilot | Yes | No | Partial | Yes |
+| Mabl / TestRigor | No | Limited | No (runtime UI only) | No |
+| SonarQube | No | No | Yes (rule-based) | Yes |
+| **Tessera** | **No (intentionally)** | **Yes — plans, cases, defects, bug reports** | **Yes (Tree-sitter + RAG)** | **Yes (local LLM)** |
+
+Three guarantees:
+
+1. **Architecture-aware.** Embeddings + RAG retrieve symbols across the project, not just the open file.
+2. **Static-only.** Code is never executed. Safe for production / closed-source / regulated codebases.
+3. **Structured outputs.** Every artifact is validated JSON. Renders to Markdown, exports cleanly to JIRA / Notion / GitHub Issues.
+
+---
 
 ## Artifact types
 
 | Type | Output |
 |------|--------|
-| Test Plan | Scope, objectives, strategy, environments, risk matrix, entry/exit criteria |
-| Test Cases | Individual cases with steps, expected results, priority, traceability to source |
-| Defect Report | Static-analysis findings: severity, category, location, suggested fix, confidence |
-| Bug Report | Potential runtime issues formatted for tracking |
-| Test Summary | Executive coverage assessment with risk areas + recommendations |
+| **Context** | Architectural summary used as the project memory for downstream artifacts |
+| **Test Plan** | Scope, objectives, strategy, environments, risk matrix, entry/exit criteria |
+| **Test Cases** | Individual cases with steps, expected results, priority, and traceability back to a source symbol |
+| **Defect Report** | Static-analysis findings: severity, category, location, suggested fix, confidence |
+| **Bug Report** | Potential runtime issues, formatted for ticket trackers |
+
+Each artifact is versioned. Regenerating with reviewer feedback bumps the version and links back to the parent.
 
 ---
 
-## Why this exists
+## Architecture
 
-No existing tool owns the "static code analysis → full test strategy" space:
+```
+┌────────────────────────────────────────────────────────────────┐
+│                    Tessera Desktop (Tauri)                     │
+│                                                                │
+│   React 19 + TS + Tailwind + shadcn/ui    ◀── Renderer         │
+│            │                                                   │
+│            │  typed IPC (Zod-validated, kebab-case wire)       │
+│            ▼                                                   │
+│   Rust commands ─▶ services ─▶ repositories ─▶ SQLite + vec0   │
+│            │                                                   │
+│            ├─▶ Tree-sitter (JS / TS / Python)                  │
+│            ├─▶ Ollama embeddings (nomic-embed-text)            │
+│            └─▶ LLM provider trait (Ollama / OpenAI /           │
+│                                    OpenRouter / Anthropic)     │
+└────────────────────────────────────────────────────────────────┘
+```
 
-- **Cursor / Copilot** generate test code snippets but treat testing as an add-on, not a primary product.
-- **Mabl / TestRigor** automate end-to-end UI testing but require a running application — they cannot reason about closed-source code or generate test plans before the system ships.
-- **SonarQube** detects code-quality issues but does not produce test plans, test cases, or structured QA documents.
+Layered backend per [`rules/rules.md`](./rules/rules.md) §4.2:
 
-This IDE bridges the gap with three guarantees:
+- **Commands** — thin Tauri IPC, no business logic
+- **Services** — orchestration, RAG, prompt building, schema validation
+- **Repositories** — only place that touches SQL + BLOBs
+- **Providers** — LLM + embedding implementations behind a trait
 
-1. **Architecture-aware** — analyzes data flows + dependency graphs, not isolated files.
-2. **Static analysis only** — works on any codebase, including production / closed-source. Code never executed.
-3. **Structured outputs** — Markdown / JSON / JIRA-compatible artifacts, not just snippets.
-
----
-
-## Status
-
-| Phase | Scope | Status |
-|-------|-------|--------|
-| 1 | Foundation: Tauri scaffold, layered structure, typed config + errors, SQLite + migrations | **Shipped** ([PR #2](https://github.com/Rajveerx11/Testing-IDE/pull/2)) |
-| 2 | LLM provider abstraction: Ollama / OpenAI / OpenRouter / Anthropic + Ollama embeddings + factory | **Shipped** ([PR #3](https://github.com/Rajveerx11/Testing-IDE/pull/3)) |
-| 3 | AST pipeline: file discovery, Tree-sitter parsing, semantic chunking, chunk repository | **Shipped** ([PR #6](https://github.com/Rajveerx11/Testing-IDE/pull/6)) |
-| 4 | Versioned prompt templates with JSON-Schema function calling | **Shipped** ([PR #9](https://github.com/Rajveerx11/Testing-IDE/pull/9)) |
-| 5 | Generation service tying RAG + prompts + LLM | **Shipped** ([PR #10](https://github.com/Rajveerx11/Testing-IDE/pull/10)) |
-| 6 | Tauri IPC commands + AES-GCM API-key encryption | **Shipped** (merged direct to `master` — commit `dc4d7d4`) |
-| 7 | Integration tests against Ollama, snapshot tests for prompts, CI workflow | **Shipped** (merged direct to `master`) |
-| 8 | Frontend IPC client + first-run wizard | **Shipped** (merged direct to `master`) |
-| 9 | Workspace shell — three-panel layout, native folder dialog, file explorer | **Shipped** (merged direct to `master`) |
-| 10 | Monaco editor + tab system + file content reads | **Shipped** (merged direct to `master`) |
-| 11 | AI panel + Settings sheet + 4-step wizard + artifact lifecycle IPC | **Shipped** (merged direct to `master`) |
-| 12 | Markdown preview drawer + regenerate-with-feedback | **Shipped** (merged direct to `master`) |
-| 13 | Auto-analyze on open + Ollama model check + streaming events | **Shipped** (merged direct to `master`) |
-
-**Parallel streams shipped:**
-- **Monorepo** — pnpm workspaces + Turborepo at root. `packages/shared/` (Zod schemas + TS types for FE/BE contracts), `packages/eslint-config/`, `packages/tsconfig/`, `packages/ui/`. Single source of truth for types is the Rust serde-derived data layer; Zod schemas mirror per `rules.md` §12.3.1.
-- **Frontend skeleton** — `apps/desktop/src/` Vite + React 19 + TailwindCSS v4 + shadcn/ui scaffold (App.tsx, main.tsx, button.tsx). Wired to Tauri's `init_db` and `greet` commands.
-- **Tauri build pipeline** — `tauri.conf.json` carries `beforeDevCommand` + `beforeBuildCommand` hooks; CSP allows the Vite dev server at `localhost:5173`.
-
-**Tests**: 231 Rust unit + Zod contract tests in `packages/shared/`. **Clippy**: clean (`pedantic` enforced). **Audit**: 21 advisories triaged in `audit.toml`. **Release build**: green.
+API keys at rest are encrypted with AES-256-GCM, derived from `JWT_SECRET`.
 
 ---
 
@@ -100,92 +117,114 @@ This IDE bridges the gap with three guarantees:
 
 | Layer | Choice |
 |-------|--------|
-| Shell | Tauri 2.0 (~3 MB binary, native filesystem access) |
-| Backend | Rust 1.77+ (Tokio async runtime, sqlx, reqwest with rustls TLS) |
-| Storage | SQLite 3 + `sqlite-vec` (embedded, no daemon, no setup) |
-| AST | `tree-sitter` (JS / TS / Python grammars wired via `services/ast_service.rs`; more languages in Phase 3.5+) |
+| Shell | Tauri 2.0 (~3 MB native binary, real filesystem access) |
+| Backend | Rust 1.81+ (Tokio, sqlx, reqwest with rustls TLS) |
+| Storage | SQLite 3 + `sqlite-vec` (embedded, no daemon) |
+| AST | `tree-sitter` (JS / TS / Python; more languages on the roadmap) |
 | Frontend | React 19 + TypeScript + Vite + TailwindCSS v4 + shadcn/ui |
-| Editor | Monaco (VS Code parity for code viewing) |
+| Editor | Monaco (offline-bundled, VS Code parity) |
+| Streaming | Tauri events on `generation://event` for live tool-call previews |
 | Logging | `tracing` (pretty in dev, JSON in release) |
+| Telemetry | Sentry (opt-in on both Rust and React) |
 
-### LLM providers (all optional, user-configurable)
+---
 
-| Provider | Auth | Local? | Default? |
-|----------|------|--------|----------|
-| Ollama Local | none | yes | yes — runs `qwen2.5-coder:7b` out of the box |
-| Ollama Cloud | API key | no | no |
-| OpenAI | API key | no | no — supports custom base URLs (Azure / proxies) |
-| OpenRouter | API key | no | no — gateway to many open + proprietary models |
-| Anthropic | API key | no | no — Claude family |
+## LLM providers
 
-**Embeddings**: `nomic-embed-text` (768 dim) via Ollama by default. Cloud embedding providers (OpenAI, Voyage AI) follow at the same trait shape.
+| Provider | Auth | Local | Notes |
+|----------|------|:-----:|-------|
+| **Ollama Local** | none | ✅ | Default. Ships with `qwen2.5-coder:7b` chat + `nomic-embed-text` embeddings |
+| Ollama Cloud | API key | ❌ | Same wire format, hosted |
+| OpenAI | API key | ❌ | Custom base URL supported (Azure / proxies) |
+| OpenRouter | API key | ❌ | Gateway to many open + proprietary models |
+| Anthropic | API key | ❌ | Claude family |
+
+Embedding model is pluggable. The default `nomic-embed-text` (768-dim, Apache-2.0) ships with Ollama and runs anywhere.
 
 ---
 
 ## Quick start
 
+### Prerequisites
+
+| Tool | Version | Notes |
+|------|---------|-------|
+| Rust | 1.81+ | Install via [rustup.rs](https://rustup.rs/) and add `clippy` + `rustfmt` |
+| Node.js | 20+ | LTS recommended |
+| pnpm | 10+ | `corepack enable` |
+| Ollama | latest | [ollama.com](https://ollama.com/) — only needed for the local provider |
+| Docker | optional | Required only for the bundled `postgres + ollama` compose stack |
+
+**Platform notes**
+
+- **Windows** — supported out of the box.
+- **macOS** — install Xcode Command Line Tools (`xcode-select --install`).
+- **Ubuntu / Debian** — install Tauri system packages:
+
+  ```bash
+  sudo apt-get update
+  sudo apt-get install -y \
+    libwebkit2gtk-4.1-dev libssl-dev libgtk-3-dev \
+    libayatana-appindicator3-dev librsvg2-dev \
+    build-essential curl wget file
+  ```
+
+### Clone + run
+
 ```bash
-git clone https://github.com/Rajveerx11/Testing-IDE.git
-cd Testing-IDE
+git clone https://github.com/Rajveerx11/Testing-IDE.git tessera
+cd tessera
 corepack enable
 corepack pnpm install
 cp .env.example .env
-pnpm bootstrap:ollama
+pnpm bootstrap:ollama          # starts Ollama, pulls chat + embedding models
 pnpm --filter @testing-ide/desktop run dev
 ```
 
-What that does:
+What happens:
 
-- `corepack pnpm install` installs the monorepo
-- `pnpm bootstrap:ollama` checks for `ollama`, starts it if needed, and pulls:
-  - `qwen2.5-coder:7b`
-  - `nomic-embed-text`
-- `pnpm --filter @testing-ide/desktop run dev` starts the Vite frontend and Tauri desktop shell
+- `corepack pnpm install` installs the monorepo (workspace + Turbo)
+- `pnpm bootstrap:ollama` checks for Ollama, starts it if needed, and pulls `qwen2.5-coder:7b` + `nomic-embed-text`
+- `pnpm --filter @testing-ide/desktop run dev` boots Vite and the Tauri shell — the desktop window opens automatically
 
-Optional shared services:
+Cold start to the first generated artifact is well under 10 minutes on a clean machine with Rust, Node, and Ollama already installed.
 
-```bash
-pnpm services:up
-```
-
-That starts the root-level Docker Compose stack in [docker-compose.yml](./docker-compose.yml):
-
-- `postgres` using `pgvector/pgvector:pg16`
-- `ollama` using `ollama/ollama:latest`
-
-Stop it with:
+### Optional shared services
 
 ```bash
+pnpm services:up      # starts pgvector + ollama via docker-compose
 pnpm services:down
 ```
 
-## Environment Setup
+See [`docker-compose.yml`](./docker-compose.yml) for the full stack.
 
-The desktop app reads environment variables from [`apps/desktop/.env.example`](./apps/desktop/.env.example).
+---
 
-Create your local desktop env file:
+## Environment
+
+The desktop app reads `apps/desktop/.env`. Create one from the example:
 
 ```bash
 cp apps/desktop/.env.example apps/desktop/.env
 ```
 
-There is also a root [.env.example](./.env.example) for Docker Compose and shared local service values.
+A separate root [`.env.example`](./.env.example) covers the optional Docker Compose stack.
 
 Useful variables:
 
-- `OLLAMA_BASE_URL=http://localhost:11434`
-- `LOG_LEVEL=info`
-- `JWT_SECRET=...` for anything beyond local-only dev
-- `SENTRY_DSN=...` enables native Rust/Tauri error reporting
-- `VITE_SENTRY_DSN=...` enables React/browser-side error reporting
+| Variable | Purpose |
+|----------|---------|
+| `OLLAMA_BASE_URL` | Ollama endpoint, default `http://localhost:11434` |
+| `LOG_LEVEL` | `tracing` filter, e.g. `info`, `debug`, `tessera=trace` |
+| `JWT_SECRET` | Required for any auth-touching path; also drives the AES key for stored API keys |
+| `SENTRY_DSN` | Native Rust / Tauri error reporting (server-side only, not bundled) |
+| `VITE_SENTRY_DSN` | React / browser error reporting (public by design) |
 
-Notes:
+If either Sentry DSN is unset, that side of the app stays offline and reports nothing.
 
-- `SENTRY_DSN` stays on the Rust side and is not bundled into the frontend
-- `VITE_SENTRY_DSN` is public by design and safe to expose to the client bundle
-- If either Sentry DSN is omitted, that side of the app stays offline and does not report events
+---
 
-## Running the App
+## Running the app
 
 Desktop development:
 
@@ -193,120 +232,151 @@ Desktop development:
 pnpm --filter @testing-ide/desktop run dev
 ```
 
-Frontend-only build:
+Frontend-only build (sanity-check without spawning Tauri):
 
 ```bash
 pnpm --filter @testing-ide/desktop run build
 ```
 
-## Test Commands
+---
 
-Run the whole monorepo test pipeline:
+## Testing
+
+The whole monorepo:
 
 ```bash
 pnpm test
 ```
 
-Common day-to-day commands:
+Targeted commands:
 
 ```bash
-pnpm lint
-pnpm typecheck
-pnpm --filter @testing-ide/desktop run test
-pnpm --filter @testing-ide/desktop run test:integration
-pnpm --filter @testing-ide/desktop run e2e:install
-pnpm --filter @testing-ide/desktop run test:e2e
+pnpm lint                                                         # ESLint + clippy in CI
+pnpm typecheck                                                    # TypeScript across the monorepo
+pnpm --filter @testing-ide/desktop run test                       # frontend Vitest + Rust unit tests
+pnpm --filter @testing-ide/desktop run test:integration           # live Ollama integration suite
+pnpm --filter @testing-ide/desktop run e2e:install                # Playwright browsers
+pnpm --filter @testing-ide/desktop run test:e2e                   # full desktop flow under the test harness
 ```
 
-What they cover:
+Coverage at a glance:
 
-- `pnpm lint`: workspace ESLint plus Rust clippy in CI
-- `pnpm typecheck`: TypeScript checks across the monorepo
-- `pnpm --filter @testing-ide/desktop run test`: frontend Vitest + Rust unit tests
-- `pnpm --filter @testing-ide/desktop run test:integration`: live Ollama integration tests
-- `pnpm --filter @testing-ide/desktop run test:e2e`: Playwright desktop flow using the test harness
+- **Rust unit + Zod contract**: 230+ tests in `apps/desktop/src-tauri` and `packages/shared`
+- **Clippy**: clean under `-W clippy::pedantic`
+- **Audit**: 21 advisories triaged in [`audit.toml`](./audit.toml)
+- **Release build**: green on Windows, macOS, Linux via `tauri-action`
 
-## Release Build
+---
 
-To build a local desktop release bundle:
+## Release builds
+
+Local desktop release bundle:
 
 ```bash
 bash tools/scripts/deploy.sh
 ```
 
-On Windows, run that from Git Bash.
-
-The deploy script:
+(Run from Git Bash on Windows.) The script:
 
 - verifies required tooling
 - installs dependencies if `node_modules/` is missing
 - runs the Tauri production build
-- lets Tauri sign artifacts when signing credentials are present
-- copies release bundles into `dist/desktop/`
+- preserves Tauri signing when signing env vars are set, and falls back to unsigned bundles otherwise
+- copies release artifacts into `dist/desktop/`
 
-Signing behavior:
+### GitHub Releases
 
-- if signing-related env vars are present, the script leaves signing enabled for Tauri
-- if not, it still builds unsigned bundles so local release testing is not blocked
-
-The script lives at [`tools/scripts/deploy.sh`](./tools/scripts/deploy.sh).
-
-## GitHub Releases
-
-Tag pushes trigger the Tauri release workflow in [`.github/workflows/release.yml`](./.github/workflows/release.yml).
-
-That workflow uses `tauri-apps/tauri-action` and publishes a draft GitHub Release with platform bundles attached.
-
-Typical release flow:
+Tag pushes trigger [`.github/workflows/release.yml`](./.github/workflows/release.yml), which uses `tauri-apps/tauri-action` to build matrix bundles for Windows, macOS, and Linux and attaches them to a draft GitHub Release.
 
 ```bash
 git tag v0.1.0
 git push origin v0.1.0
 ```
 
-After the tag push:
+Maintainer reviews the draft release notes and publishes.
 
-1. GitHub Actions runs the release workflow
-2. Tauri builds bundles for Windows, macOS, and Linux
-3. A draft GitHub Release is created with the artifacts attached
-4. Maintainer reviews the draft notes and publishes it
+---
 
-## Repo Layout
+## Repo layout
 
-Main directories:
+```
+.
+├── apps/
+│   └── desktop/              # Tauri shell (Rust + React)
+│       ├── src/              # React 19 + TS + Tailwind
+│       └── src-tauri/        # Rust backend (commands → services → repositories)
+├── packages/
+│   ├── shared/               # Zod schemas + inferred TS types (FE/BE contract)
+│   ├── ui/                   # shadcn/ui-flavored shared components
+│   ├── eslint-config/        # base + React presets
+│   └── tsconfig/             # base + desktop presets
+├── tools/scripts/            # deploy + release automation
+├── plan/                     # phase plans, ADRs, design docs
+├── rules/                    # engineering rulebook
+└── .github/workflows/        # CI + release pipelines
+```
 
-- [`apps/desktop`](./apps/desktop): Tauri desktop app
-- [`apps/desktop/src-tauri`](./apps/desktop/src-tauri): Rust backend
-- [`packages/shared`](./packages/shared): shared Zod schemas and types
-- [`packages/ui`](./packages/ui): shared UI package
-- [`tools/scripts`](./tools/scripts): repo automation scripts
-- [`plan`](./plan): planning docs
-- [`rules`](./rules): engineering rules
+---
 
-## Sentry
+## Status & roadmap
 
-Sentry is now initialized in both runtimes:
+Phases 1–13 are shipped. Tessera is feature-complete for the v0.1 milestone.
 
-- React entrypoint: [`apps/desktop/src/lib/sentry.ts`](./apps/desktop/src/lib/sentry.ts)
-- Rust/Tauri startup: [`apps/desktop/src-tauri/src/utils/telemetry.rs`](./apps/desktop/src-tauri/src/utils/telemetry.rs)
+| Phase | Scope | Status |
+|-------|-------|--------|
+| 1 | Tauri scaffold, layered structure, typed config + errors, SQLite + migrations | Shipped ([PR #2](https://github.com/Rajveerx11/Testing-IDE/pull/2)) |
+| 2 | LLM provider abstraction (Ollama / OpenAI / OpenRouter / Anthropic) + embeddings + factory | Shipped ([PR #3](https://github.com/Rajveerx11/Testing-IDE/pull/3)) |
+| 3 | AST pipeline: file discovery, Tree-sitter parsing, semantic chunking, chunk repository | Shipped ([PR #6](https://github.com/Rajveerx11/Testing-IDE/pull/6)) |
+| 4 | Versioned prompt templates with JSON-Schema function calling | Shipped ([PR #9](https://github.com/Rajveerx11/Testing-IDE/pull/9)) |
+| 5 | Generation service (RAG + prompts + LLM) | Shipped ([PR #10](https://github.com/Rajveerx11/Testing-IDE/pull/10)) |
+| 6 | Tauri IPC commands + AES-GCM API-key encryption | Shipped |
+| 7 | Live Ollama integration tests, prompt snapshots, CI workflow | Shipped |
+| 8 | Frontend IPC client + first-run wizard | Shipped |
+| 9 | Workspace shell — three-panel layout, native folder dialog, file explorer | Shipped |
+| 10 | Monaco editor + tab system + file content reads | Shipped |
+| 11 | AI panel + Settings sheet + 4-step wizard + artifact lifecycle IPC | Shipped |
+| 12 | Markdown preview drawer + regenerate-with-feedback | Shipped |
+| 13 | Auto-analyze on open + Ollama model check + streaming events | Shipped |
 
-Both are opt-in and remain disabled until you set the matching DSN.
+**On the roadmap**
 
-## Development Rules
+- More AST languages (Go, Java, C#, Ruby, Rust)
+- `sqlite-vec` virtual-table search for projects > 50K chunks (ADR-0002)
+- Cloud embedding providers (OpenAI, Voyage AI) behind the same trait
+- Export to JIRA / Linear / GitHub Issues
+- Team-mode collaboration (out-of-scope for v0.1)
+
+---
+
+## Contributing
 
 Before changing code, read:
 
-- [`plan/initial-plan.md`](./plan/initial-plan.md)
-- [`rules/rules.md`](./rules/rules.md)
+- [`plan/initial-plan.md`](./plan/initial-plan.md) — phase plans + intent
+- [`rules/rules.md`](./rules/rules.md) — engineering rules (layering, IPC, schema validation, security)
+- [`CONTRIBUTING.md`](./CONTRIBUTING.md) — merge flow, pre-push hook, conflict-marker policy
 
-The repo follows:
+The repo enforces:
 
-- strict TypeScript
-- Rust `clippy` as a gate
-- Zod validation at trust boundaries
-- local-first AI workflows
-- Ollama-backed integration coverage
+- strict TypeScript across the monorepo
+- Rust `clippy::pedantic` as a CI gate
+- Zod validation at every trust boundary (IPC + form input)
+- local-first AI workflows — no cloud dependency for the default path
+- live Ollama integration coverage in CI
+
+A pre-push hook lives at [`tools/scripts/pre-push-no-markers.sh`](./tools/scripts/pre-push-no-markers.sh) — install it once and unresolved conflict markers stop locally instead of failing CI.
+
+---
 
 ## License
 
-License is still pending. Until then, treat the repository as all-rights-reserved.
+License is still pending. Until then, treat the repository as **all-rights-reserved**. A permissive license will be confirmed before the first tagged public release.
+
+---
+
+<div align="center">
+
+Built locally. Runs locally. Reviews locally.<br/>
+**Tessera** — the mosaic of your software's quality.
+
+</div>
