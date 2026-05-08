@@ -41,9 +41,8 @@ sudo apt-get install -y \
   file
 ```
 
-<<<<<<< HEAD
-## Quick Start
-=======
+## Artifact types
+
 | Type | Output |
 |------|--------|
 | Test Plan | Scope, objectives, strategy, environments, risk matrix, entry/exit criteria |
@@ -124,16 +123,6 @@ This IDE bridges the gap with three guarantees:
 ---
 
 ## Quick start
-
-### Prerequisites
-
-- **Rust 1.77+** — install from [rustup.rs](https://rustup.rs/), then `rustup component add clippy rustfmt`.
-- **Node.js 20+** + **pnpm** — for the frontend (Phase 1 ships backend only; frontend lands later).
-- **Ollama** — install from [ollama.com](https://ollama.com/) for local LLM inference. Optional if you only use cloud providers.
-- **Platform deps**: Windows is fully supported. Linux requires `webkit2gtk-4.1`. macOS requires Xcode CLI tools.
-
-### Clone + build
->>>>>>> 4c47d2aa1ccf6ef1885b16104e3665fca6828162
 
 ```bash
 git clone https://github.com/Rajveerx11/Testing-IDE.git
