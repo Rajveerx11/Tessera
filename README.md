@@ -10,7 +10,7 @@
 [![Rust](https://img.shields.io/badge/Rust-1.81+-CE422B?logo=rust)](https://www.rust-lang.org/)
 [![React](https://img.shields.io/badge/React-19-61DAFB?logo=react)](https://react.dev/)
 [![Ollama](https://img.shields.io/badge/Ollama-local-000000?logo=ollama)](https://ollama.com/)
-[![License: Pending](https://img.shields.io/badge/license-pending-lightgrey.svg)](#license)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](./LICENSE.md)
 
 </div>
 
@@ -439,7 +439,7 @@ gh pr create --fill         # template + CODEOWNERS take it from here
 
 ## License
 
-License is still pending. Until then, treat the repository as **all-rights-reserved**. A permissive license will be confirmed before the first tagged public release.
+Tessera is released under the [MIT License](./LICENSE.md). Use it, fork it, ship it — attribution preserved in the license header is the only requirement.
 
 ---
 
