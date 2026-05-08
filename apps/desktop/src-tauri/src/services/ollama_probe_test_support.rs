@@ -249,9 +249,7 @@ fn extract_tool_arguments(response_content: &[Content], tool_name: &str) -> Resu
 fn validate_tool_output(tool: &ToolSchema, data: &JsonValue) -> Result<()> {
     let tool_name = tool.name.clone();
     let validator = jsonschema::JSONSchema::compile(&tool.parameters_schema).map_err(|error| {
-        anyhow!(
-            "tool schema for `{tool_name}` failed to compile as JSON Schema: {error}"
-        )
+        anyhow!("tool schema for `{tool_name}` failed to compile as JSON Schema: {error}")
     })?;
     let errors: Vec<String> = validator
         .validate(data)

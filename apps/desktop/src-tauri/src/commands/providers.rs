@@ -4,13 +4,9 @@
 //! API keys are encrypted before persistence and never returned in
 //! plaintext over IPC.
 
-<<<<<<< HEAD
-use serde::Deserialize;
-=======
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
->>>>>>> 4c47d2aa1ccf6ef1885b16104e3665fca6828162
 use sqlx::SqlitePool;
 use tauri::State;
 
@@ -108,8 +104,6 @@ pub async fn test_provider_connection(
     )
     .await
     .map_err(|error| error.to_string())
-<<<<<<< HEAD
-=======
 }
 
 /// Listed model from the Ollama daemon. Mirrors the subset of
@@ -175,5 +169,4 @@ pub async fn list_ollama_models(base_url: Option<String>) -> Result<Vec<OllamaMo
             size_bytes: e.size,
         })
         .collect())
->>>>>>> 4c47d2aa1ccf6ef1885b16104e3665fca6828162
 }

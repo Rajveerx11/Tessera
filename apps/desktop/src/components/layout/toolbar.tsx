@@ -1,17 +1,9 @@
-<<<<<<< HEAD
-import { FolderOpen, Loader2, Settings } from 'lucide-react';
-import { useCallback } from 'react';
-
-import { Button } from '@/components/ui/button';
-import { analysis, filesystem, IpcError, projects } from '@/lib/ipc';
-=======
 import type { Project } from '@testing-ide/shared';
-import { Clock, FolderOpen, Settings } from 'lucide-react';
+import { Clock, FolderOpen, Loader2, Settings } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { Button } from '@/components/ui/button';
 import { analysis as analysisIpc, filesystem, IpcError, projects } from '@/lib/ipc';
->>>>>>> 4c47d2aa1ccf6ef1885b16104e3665fca6828162
 import { useEditorStore } from '@/stores/editor-store';
 import { useUiStore } from '@/stores/ui-store';
 import { useWorkspaceStore } from '@/stores/workspace-store';
@@ -19,7 +11,8 @@ import { useWorkspaceStore } from '@/stores/workspace-store';
 /**
  * Top toolbar above the three-panel workspace. Hosts the "Open folder"
  * action (native dialog), the recent-projects popover (re-opens a row
- * persisted by `create_project`), and the Settings sheet trigger.
+ * persisted by `create_project`), a manual Analyze button, and the
+ * Settings sheet trigger.
  */
 export function Toolbar() {
   const setSettingsOpen = useUiStore((s) => s.setSettingsOpen);
@@ -29,12 +22,32 @@ export function Toolbar() {
   const setTree = useWorkspaceStore((s) => s.setTree);
   const setTreeLoading = useWorkspaceStore((s) => s.setTreeLoading);
   const setTreeError = useWorkspaceStore((s) => s.setTreeError);
-<<<<<<< HEAD
-  const analysisStatus = useWorkspaceStore((s) => s.analysis);
-  const setAnalysisStatus = useWorkspaceStore((s) => s.setAnalysis);
-=======
+  const analysisState = useWorkspaceStore((s) => s.analysis);
   const setAnalysis = useWorkspaceStore((s) => s.setAnalysis);
-  const updateProject = useWorkspaceStore((s) => s.updateProject);
+
+  const runAnalysis = useCallback(
+    (target: Project) => {
+      setAnalysis({ status: 'pending' });
+      void (async () => {
+        try {
+          const outcome = await analysisIpc.analyzeProject(target.id);
+          try {
+            const refreshed = await projects.getProject(target.id);
+            updateProject(refreshed);
+          } catch {
+            // Non-fatal: stale project values are cosmetic.
+          }
+          setAnalysis({ status: 'ready', outcome });
+        } catch (err) {
+          setAnalysis({
+            status: 'error',
+            message: err instanceof IpcError ? err.message : String(err),
+          });
+        }
+      })();
+    },
+    [setAnalysis, updateProject],
+  );
 
   const loadProject = useCallback(
     (target: Project, options: { skipAnalysisIfReady: boolean }) => {
@@ -61,31 +74,15 @@ export function Toolbar() {
           options.skipAnalysisIfReady && target.status === 'ready' && target.fileCount > 0;
         if (alreadyReady) return;
 
-        setAnalysis({ status: 'pending' });
-        try {
-          const outcome = await analysisIpc.analyzeProject(target.id);
-          try {
-            const refreshed = await projects.getProject(target.id);
-            updateProject(refreshed);
-          } catch {
-            // Non-fatal: analysis succeeded; stale project values are cosmetic.
-          }
-          setAnalysis({ status: 'ready', outcome });
-        } catch (err) {
-          setAnalysis({
-            status: 'error',
-            message: err instanceof IpcError ? err.message : String(err),
-          });
-        }
+        runAnalysis(target);
       })();
     },
-    [setAnalysis, setProject, setTree, setTreeError, setTreeLoading, updateProject],
+    [runAnalysis, setProject, setTree, setTreeError, setTreeLoading],
   );
->>>>>>> 4c47d2aa1ccf6ef1885b16104e3665fca6828162
 
   const handleOpenFolder = useCallback(() => {
     setTreeError(null);
-    setAnalysisStatus({ status: 'idle' });
+    setAnalysis({ status: 'idle' });
     void (async () => {
       let path: string | null;
       try {
@@ -108,47 +105,14 @@ export function Toolbar() {
       // hit the chunker).
       loadProject(created, { skipAnalysisIfReady: false });
     })();
-<<<<<<< HEAD
-  }, [setAnalysisStatus, setProject, setTree, setTreeError, setTreeLoading]);
+  }, [loadProject, setAnalysis, setTreeError]);
 
   const handleAnalyze = useCallback(() => {
-    if (project === null) {
-      return;
-    }
+    if (project === null) return;
+    runAnalysis(project);
+  }, [project, runAnalysis]);
 
-    const currentProject = project;
-    setAnalysisStatus({ status: 'pending' });
-    updateProject({ ...currentProject, status: 'analyzing' });
-
-    void (async () => {
-      try {
-        const outcome = await analysis.analyzeProject(currentProject.id);
-        setAnalysisStatus({ status: 'ready', outcome });
-        try {
-          const refreshed = await projects.getProject(currentProject.id);
-          updateProject(refreshed);
-        } catch {
-          updateProject({
-            ...currentProject,
-            fileCount: outcome.filesDiscovered,
-            totalSizeBytes: outcome.totalSizeBytes,
-            status: 'ready',
-          });
-        }
-      } catch (err) {
-        setAnalysisStatus({
-          status: 'error',
-          message: err instanceof IpcError ? err.message : String(err),
-        });
-        updateProject({ ...currentProject, status: 'error' });
-      }
-    })();
-  }, [project, setAnalysisStatus, updateProject]);
-
-  const isAnalyzing = analysisStatus.status === 'pending';
-=======
-  }, [loadProject, setTreeError]);
->>>>>>> 4c47d2aa1ccf6ef1885b16104e3665fca6828162
+  const isAnalyzing = analysisState.status === 'pending';
 
   return (
     <header className="flex h-10 shrink-0 items-center justify-between border-b border-border bg-card px-3">
@@ -179,7 +143,7 @@ export function Toolbar() {
           data-testid="analyze-project"
         >
           {isAnalyzing ? <Loader2 className="size-4 animate-spin" /> : null}
-          {isAnalyzing ? 'Analyzing...' : 'Analyze'}
+          {isAnalyzing ? 'Analyzing…' : 'Analyze'}
         </Button>
         <Button
           type="button"

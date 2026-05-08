@@ -34,16 +34,6 @@ export type WorkspaceState = {
   loadingTree: boolean;
   treeError: string | null;
   selectedPath: string | null;
-<<<<<<< HEAD
-  analysis:
-    | { status: 'idle' }
-    | { status: 'pending' }
-    | { status: 'error'; message: string }
-    | { status: 'ready'; outcome: AnalysisOutcome };
-
-  setProject: (project: Project | null) => void;
-  updateProject: (project: Project | null) => void;
-=======
   analysis: AnalysisState;
 
   setProject: (project: Project | null) => void;
@@ -52,16 +42,11 @@ export type WorkspaceState = {
    *  refreshed `fileCount` / `status` propagate without nuking the
    *  loaded directory walk. */
   updateProject: (project: Project) => void;
->>>>>>> 4c47d2aa1ccf6ef1885b16104e3665fca6828162
   setTree: (tree: FsEntry[]) => void;
   setTreeLoading: (loading: boolean) => void;
   setTreeError: (error: string | null) => void;
   setSelectedPath: (path: string | null) => void;
-<<<<<<< HEAD
-  setAnalysis: (analysis: WorkspaceState['analysis']) => void;
-=======
   setAnalysis: (state: AnalysisState) => void;
->>>>>>> 4c47d2aa1ccf6ef1885b16104e3665fca6828162
   /** Replace the children of the entry at `relativePath`. Used after a
    *  lazy directory expand. */
   setChildren: (relativePath: string, children: FsEntry[]) => void;

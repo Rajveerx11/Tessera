@@ -95,11 +95,8 @@ pub fn run() {
             commands::providers::list_provider_configs,
             commands::providers::delete_provider_config,
             commands::providers::test_provider_connection,
-<<<<<<< HEAD
-=======
             commands::providers::list_ollama_models,
             // Artifact commands (Phase 11)
->>>>>>> 4c47d2aa1ccf6ef1885b16104e3665fca6828162
             commands::artifacts::list_artifacts,
             commands::artifacts::get_artifact,
             commands::artifacts::approve_artifact,

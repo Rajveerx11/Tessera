@@ -217,6 +217,7 @@ describe('Schema validity catalog', () => {
     ).toBe('qwen2.5-coder:7b');
     expect(
       GenerateResponseSchema.parse({
+        generationId: '8a3e4567-e89b-12d3-a456-426614174999',
         artifactId: UUID_B,
         artifactType: 'context-md',
         contentMd: '# Demo',

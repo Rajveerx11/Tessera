@@ -318,6 +318,7 @@ export function installE2eTauriMocks(): void {
 
         artifact = buildTestPlanArtifact(args.projectName);
         const response: GenerateResponse = {
+          generationId: '00000000-0000-4000-8000-000000000001',
           artifactId: artifact.detail.id,
           artifactType: artifact.detail.artifactType,
           contentMd: artifact.detail.contentMd,

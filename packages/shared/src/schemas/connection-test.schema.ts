@@ -1,9 +1,6 @@
 import { z } from 'zod';
 
-import {
-  ConnectionTestResultSchema,
-  ConnectionTestSchema,
-} from './provider.schema';
+import { ConnectionTestSchema } from './provider.schema';
 
 /**
  * Legacy alias kept for compatibility with older imports.
@@ -16,11 +13,6 @@ export const ProviderConnectionTestArgsSchema = ConnectionTestSchema;
 export type ProviderConnectionTestArgs = z.infer<typeof ProviderConnectionTestArgsSchema>;
 
 /**
-<<<<<<< HEAD
- * Legacy alias kept for compatibility with older imports.
- */
-export const ProviderConnectionTestResultSchema = ConnectionTestResultSchema;
-=======
  * Result of `test_provider_connection` — mirrors
  * `ProviderConnectionTestResult` in
  * `apps/desktop/src-tauri/src/services/provider_connection_service.rs`.
@@ -36,6 +28,5 @@ export const ProviderConnectionTestResultSchema = z.object({
   latencyMs: z.number().int().nonnegative(),
   models: z.array(z.string()).default([]),
 });
->>>>>>> 4c47d2aa1ccf6ef1885b16104e3665fca6828162
 
 export type ProviderConnectionTestResult = z.infer<typeof ProviderConnectionTestResultSchema>;
