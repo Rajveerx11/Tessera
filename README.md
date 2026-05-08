@@ -33,6 +33,7 @@
 - [Release builds](#release-builds)
 - [Repo layout](#repo-layout)
 - [Status & roadmap](#status--roadmap)
+- [Workflow & guards](#workflow--guards)
 - [Contributing](#contributing)
 - [License](#license)
 
@@ -348,13 +349,69 @@ Phases 1–13 are shipped. Tessera is feature-complete for the v0.1 milestone.
 
 ---
 
+## Workflow & guards
+
+Tessera is built by a small team. Master is kept green and linear by a
+three-layer defence so a broken push from one contributor never costs
+the rest of the team a 1–2 hour cleanup session.
+
+```
+   commit ──► .husky/pre-commit                    (instant, on dev machine)
+                ├─ conflict-marker scan
+                └─ 5 MB large-file guard
+
+   push ────► .husky/pre-push  →  pre-push.sh      (~30s–2min, on dev machine)
+                ├─ conflict-marker scan
+                ├─ pnpm typecheck
+                ├─ pnpm lint
+                ├─ pnpm test
+                └─ cargo clippy + cargo test --lib  (if cargo installed)
+
+   open PR ─► GitHub Actions                       (on the runner)
+                ├─ conflict-marker-check
+                ├─ lint
+                ├─ typecheck
+                ├─ unit-test
+                ├─ integration-test (live Ollama)
+                └─ release-build (Tauri matrix)
+
+   merge ───► branch protection on `master`        (hard server-side gate)
+                ├─ PR required, approval required (CODEOWNERS-routed)
+                ├─ all required checks green
+                ├─ branch up to date with master
+                ├─ linear history (squash merge only)
+                └─ no force-push, no admin bypass
+```
+
+The hooks wire up automatically the first time a contributor runs
+`pnpm install` (Husky's `prepare` script). No manual hook install
+needed. CI runs the same gauntlet on every PR, so what passes locally
+passes in CI.
+
+**Opt-in auto-merge.** Add the `auto-merge` label to a PR and
+`.github/workflows/auto-merge.yml` flips GitHub-native auto-merge.
+Once reviews + checks are green, the PR squash-merges with no manual
+click. The label does not bypass any required gate.
+
+Detailed references:
+
+- [`docs/AGENT_WORKFLOW.md`](./docs/AGENT_WORKFLOW.md) — canonical
+  workflow contract for AI agents and humans (hard rules, common
+  failure modes, where-to-look table)
+- [`BRANCH_PROTECTION.md`](./BRANCH_PROTECTION.md) — admin runbook for
+  the GitHub branch-protection settings (apply once)
+- [`CONTRIBUTING.md`](./CONTRIBUTING.md) — short pointer for human
+  contributors
+
+---
+
 ## Contributing
 
 Before changing code, read:
 
-- [`plan/initial-plan.md`](./plan/initial-plan.md) — phase plans + intent
+- [`docs/AGENT_WORKFLOW.md`](./docs/AGENT_WORKFLOW.md) — workflow contract
 - [`rules/rules.md`](./rules/rules.md) — engineering rules (layering, IPC, schema validation, security)
-- [`CONTRIBUTING.md`](./CONTRIBUTING.md) — merge flow, pre-push hook, conflict-marker policy
+- [`plan/initial-plan.md`](./plan/initial-plan.md) — phase plans + intent
 
 The repo enforces:
 
@@ -364,7 +421,19 @@ The repo enforces:
 - local-first AI workflows — no cloud dependency for the default path
 - live Ollama integration coverage in CI
 
-A pre-push hook lives at [`tools/scripts/pre-push-no-markers.sh`](./tools/scripts/pre-push-no-markers.sh) — install it once and unresolved conflict markers stop locally instead of failing CI.
+To get going:
+
+```bash
+git clone https://github.com/Rajveerx11/Testing-IDE.git tessera
+cd tessera
+corepack enable
+corepack pnpm install      # also wires the Husky pre-commit + pre-push hooks
+git checkout -b feat/<short-slug>
+# work, commit, then:
+pnpm guard:pre-push         # optional — runs the full local gauntlet up front
+git push -u origin HEAD
+gh pr create --fill         # template + CODEOWNERS take it from here
+```
 
 ---
 
