@@ -1,5 +1,4 @@
-import { invoke } from '@tauri-apps/api/core';
-import { LoginSchema, RegisterSchema } from '@testing-ide/shared';
+import { LoginSchema, RegisterSchema, type SessionUser } from '@testing-ide/shared';
 import { useCallback, useEffect, useState } from 'react';
 import type { ZodError } from 'zod';
 
@@ -11,22 +10,10 @@ import { AppShell } from '@/components/layout/app-shell';
 import { SettingsSheet } from '@/components/settings/settings-sheet';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { IpcError, system } from '@/lib/ipc';
+import { auth, IpcError, system } from '@/lib/ipc';
 import type { InitDbResponse } from '@/lib/ipc/system';
 import { readOnboardingFlag } from '@/lib/onboarding';
 import { useAuthStore } from '@/stores/auth-store';
-
-type TokenPair = {
-  accessToken: string;
-  refreshToken: string;
-  tokenType: string;
-};
-
-type SessionUser = {
-  id: string;
-  email: string;
-  name: string | null;
-};
 
 function formatZodError(err: ZodError): string {
   const flat = err.flatten();
@@ -140,13 +127,14 @@ function DevPanel() {
       setAuthError(formatZodError(parsed.error));
       return;
     }
-    void invoke<TokenPair>('register', { body: parsed.data })
+    void auth
+      .register(parsed.data)
       .then((pair) => {
         setTokens(pair.accessToken, pair.refreshToken);
         setSessionUser(null);
       })
       .catch((err: unknown) => {
-        setAuthError(err instanceof Error ? err.message : String(err));
+        setAuthError(err instanceof IpcError ? err.message : String(err));
       });
   }, [email, password, name, setTokens]);
 
@@ -157,13 +145,14 @@ function DevPanel() {
       setAuthError(formatZodError(parsed.error));
       return;
     }
-    void invoke<TokenPair>('login', { body: parsed.data })
+    void auth
+      .login(parsed.data)
       .then((pair) => {
         setTokens(pair.accessToken, pair.refreshToken);
         setSessionUser(null);
       })
       .catch((err: unknown) => {
-        setAuthError(err instanceof Error ? err.message : String(err));
+        setAuthError(err instanceof IpcError ? err.message : String(err));
       });
   }, [email, password, setTokens]);
 
@@ -173,13 +162,14 @@ function DevPanel() {
       setAuthError('No refresh token in session store');
       return;
     }
-    void invoke<TokenPair>('refresh_token', { body: { refreshToken } })
+    void auth
+      .refreshToken(refreshToken)
       .then((pair) => {
         setTokens(pair.accessToken, pair.refreshToken);
         setSessionUser(null);
       })
       .catch((err: unknown) => {
-        setAuthError(err instanceof Error ? err.message : String(err));
+        setAuthError(err instanceof IpcError ? err.message : String(err));
       });
   }, [refreshToken, setTokens]);
 
@@ -189,12 +179,13 @@ function DevPanel() {
       setAuthError('No access token in session store');
       return;
     }
-    void invoke<SessionUser>('auth_me', { authorization: `Bearer ${accessToken}` })
+    void auth
+      .authMe(accessToken)
       .then((u) => {
         setSessionUser(u);
       })
       .catch((err: unknown) => {
-        setAuthError(err instanceof Error ? err.message : String(err));
+        setAuthError(err instanceof IpcError ? err.message : String(err));
       });
   }, [accessToken]);
 

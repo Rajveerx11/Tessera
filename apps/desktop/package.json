@@ -6,6 +6,7 @@
   "scripts": {
     "vite:dev": "node ../../node_modules/vite/bin/vite.js",
     "vite:build": "node ../../node_modules/vite/bin/vite.js build",
+    "tauri": "node ./scripts/run-tauri-with-rust-path.mjs",
     "dev": "node ./scripts/run-tauri-with-rust-path.mjs dev",
     "build": "node ./scripts/run-tauri-with-rust-path.mjs build",
     "e2e:install": "node ./scripts/install-playwright-browser.mjs",
