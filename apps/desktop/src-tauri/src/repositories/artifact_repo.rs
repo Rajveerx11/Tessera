@@ -55,6 +55,35 @@ impl ArtifactType {
             _ => None,
         }
     }
+
+    /// Kebab-case form used over the IPC boundary. Mirrors
+    /// `GenerationArtifactTypeSchema` in `packages/shared/`. DB storage
+    /// stays snake_case via [`as_str`]; this is purely the renderer
+    /// wire format.
+    #[must_use]
+    pub fn as_ipc_str(self) -> &'static str {
+        match self {
+            Self::ContextMd => "context-md",
+            Self::TestPlan => "test-plan",
+            Self::TestCases => "test-cases",
+            Self::DefectReport => "defect-report",
+            Self::BugReport => "bug-report",
+        }
+    }
+
+    /// Inverse of [`as_ipc_str`]. Used by command-layer parsers that
+    /// receive kebab-case literals from the renderer.
+    #[must_use]
+    pub fn from_ipc_str(s: &str) -> Option<Self> {
+        match s {
+            "context-md" => Some(Self::ContextMd),
+            "test-plan" => Some(Self::TestPlan),
+            "test-cases" => Some(Self::TestCases),
+            "defect-report" => Some(Self::DefectReport),
+            "bug-report" => Some(Self::BugReport),
+            _ => None,
+        }
+    }
 }
 
 /// Lifecycle status of a generated artifact. Mirrors the

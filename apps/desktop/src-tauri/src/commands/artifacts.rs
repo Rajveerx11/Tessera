@@ -35,7 +35,7 @@ impl From<Artifact> for ArtifactSummary {
         Self {
             id: a.id,
             project_id: a.project_id,
-            artifact_type: a.artifact_type.as_str().to_string(),
+            artifact_type: a.artifact_type.as_ipc_str().to_string(),
             title: a.title,
             status: a.status.as_str().to_string(),
             version: a.version,
@@ -75,7 +75,7 @@ impl From<Artifact> for ArtifactDetail {
         Self {
             id: a.id,
             project_id: a.project_id,
-            artifact_type: a.artifact_type.as_str().to_string(),
+            artifact_type: a.artifact_type.as_ipc_str().to_string(),
             title: a.title,
             content_md: a.content_md,
             structured_data: a.structured_data,

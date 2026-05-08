@@ -132,7 +132,7 @@ pub async fn generate_artifact(
     Ok(GenerateResponse {
         generation_id,
         artifact_id: outcome.artifact_id,
-        artifact_type: outcome.artifact_type.as_str().to_string(),
+        artifact_type: outcome.artifact_type.as_ipc_str().to_string(),
         content_md: outcome.content_md,
         usage_input_tokens: outcome.usage_input_tokens,
         usage_output_tokens: outcome.usage_output_tokens,
@@ -175,6 +175,9 @@ fn build_event_sink(app: AppHandle, generation_id: String) -> StreamSink {
 }
 
 fn parse_artifact_type(s: &str) -> Result<ArtifactType, crate::error::AppError> {
-    ArtifactType::from_str_value(s)
+    // Renderer sends kebab-case (`test-cases`) per
+    // `GenerationArtifactTypeSchema`. DB storage uses snake_case via
+    // [`ArtifactType::as_str`].
+    ArtifactType::from_ipc_str(s)
         .ok_or_else(|| crate::error::AppError::InvalidInput(format!("unknown artifact_type `{s}`")))
 }

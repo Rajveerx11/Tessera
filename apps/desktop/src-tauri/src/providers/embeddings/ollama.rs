@@ -130,6 +130,20 @@ impl EmbeddingProvider for OllamaEmbeddingProvider {
                     provider: PROVIDER_NAME,
                     message: preview,
                 },
+                404 => {
+                    // Ollama returns 404 with `"model … not found, try
+                    // pulling it first"` when the requested model isn't
+                    // local. Surface a concrete `ollama pull` hint so
+                    // users don't have to grep the raw HTTP body.
+                    LlmError::InvalidResponse {
+                        provider: PROVIDER_NAME,
+                        message: format!(
+                            "embedding model `{}` is not pulled locally. \
+                             Run: `ollama pull {}` and retry.",
+                            self.model, self.model,
+                        ),
+                    }
+                }
                 429 => LlmError::RateLimited {
                     provider: PROVIDER_NAME,
                     retry_after_seconds: None,

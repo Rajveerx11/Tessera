@@ -306,14 +306,32 @@ async fn retrieve_chunks(
     request: &GenerationRequest,
     deps: &GenerationDeps<'_>,
 ) -> AppResult<Vec<CodeChunk>> {
-    if request.scope_hint.trim().is_empty() {
+    // Code-grounded artifacts (test_cases, defect_report, bug_report)
+    // require concrete symbols in the prompt or the model emits an
+    // empty `cases` / `defects` / `bugs` array, which fails JSON-Schema
+    // validation downstream. When the caller does not supply a
+    // `scope_hint`, fall back to a generic phrase so RAG returns *some*
+    // chunks instead of an empty list.
+    let scope_provided = !request.scope_hint.trim().is_empty();
+    let effective_query = if scope_provided {
+        request.scope_hint.clone()
+    } else {
+        match request.artifact_type {
+            ArtifactType::ContextMd | ArtifactType::TestPlan => String::new(),
+            ArtifactType::TestCases
+            | ArtifactType::DefectReport
+            | ArtifactType::BugReport => format!(
+                "core public APIs, exported functions, classes, and entry points of {}",
+                request.project_name
+            ),
+        }
+    };
+
+    if effective_query.trim().is_empty() {
         return Ok(Vec::new());
     }
 
-    let mut embeddings = deps
-        .embeddings
-        .embed(vec![request.scope_hint.clone()])
-        .await?;
+    let mut embeddings = deps.embeddings.embed(vec![effective_query]).await?;
     let Some(query_vec) = embeddings.pop() else {
         return Ok(Vec::new());
     };
@@ -330,9 +348,21 @@ async fn retrieve_chunks(
     )
     .await?;
 
-    Ok(hits
+    // When the caller supplied a real scope_hint we trust it and apply
+    // the similarity floor to drop off-topic chunks. With the fallback
+    // generic query, drop the floor so we always surface the top-K
+    // chunks rather than risk an empty prompt for code-grounded
+    // artifacts.
+    let filtered: Vec<_> = if scope_provided {
+        hits.into_iter()
+            .filter(|h| h.similarity >= MIN_SIMILARITY)
+            .collect()
+    } else {
+        hits
+    };
+
+    Ok(filtered
         .into_iter()
-        .filter(|h| h.similarity >= MIN_SIMILARITY)
         .map(|h| CodeChunk {
             kind: h.kind,
             name: h.name,
