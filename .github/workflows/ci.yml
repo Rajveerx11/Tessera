@@ -19,6 +19,27 @@ env:
   PNPM_VERSION: "10.9.0"
 
 jobs:
+  conflict-marker-check:
+    name: conflict-marker-check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Scan for unresolved Git conflict markers
+        # Hard-fail when `<<<<<<<`, `=======`, or `>>>>>>>` lines slip into
+        # tracked source. Master has been broken three times by merge
+        # commits that committed these markers as file content; this gate
+        # catches it before the rest of CI even spins up.
+        run: |
+          set -euo pipefail
+          if git grep -nE '^(<{7}|>{7}|={7})( |$)' -- \
+              ':(exclude)pnpm-lock.yaml' \
+              ':(exclude)*package-lock.json' \
+              ':(exclude).github/workflows/ci.yml'; then
+            echo ""
+            echo "::error::Unresolved Git conflict markers found above. Resolve them locally with 'git status' before pushing."
+            exit 1
+          fi
+
   lint:
     name: lint (${{ matrix.os }})
     runs-on: ${{ matrix.os }}

@@ -2,6 +2,7 @@ export * from './types/analysis';
 export * from './types/artifact';
 export * from './types/artifact-summary';
 export * from './types/auth';
+export * from './types/auth-token';
 export * from './types/code-chunk';
 export * from './types/connection-test';
 export * from './types/generation';
