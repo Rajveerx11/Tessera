@@ -1,0 +1,39 @@
+name: auto-merge
+
+# Enables GitHub's native auto-merge on PRs that opt in. The PR author
+# (or any maintainer) just clicks "Enable auto-merge" once or labels
+# the PR with `auto-merge`; this workflow flips the auto-merge flag so
+# the PR squash-merges as soon as required reviews are approved and
+# all required status checks pass.
+#
+# This workflow does NOT bypass branch protection. It still requires:
+#   - approving review(s)
+#   - all required status checks green
+#   - branch up to date with master
+#
+# It just removes the manual "click merge" step once the gates are
+# satisfied.
+
+on:
+  pull_request:
+    types: [opened, labeled, synchronize, ready_for_review]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  enable-auto-merge:
+    if: >
+      !github.event.pull_request.draft &&
+      contains(github.event.pull_request.labels.*.name, 'auto-merge')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Enable auto-merge (squash)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh pr merge "${{ github.event.pull_request.number }}" \
+            --auto \
+            --squash \
+            --repo "${{ github.repository }}"

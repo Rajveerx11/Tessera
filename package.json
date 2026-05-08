@@ -11,9 +11,13 @@
     "typecheck": "node ./node_modules/turbo/bin/turbo run typecheck",
     "bootstrap:ollama": "node --experimental-strip-types tools/scripts/bootstrap-ollama.ts",
     "services:up": "docker compose up -d postgres ollama",
-    "services:down": "docker compose down"
+    "services:down": "docker compose down",
+    "prepare": "node ./node_modules/husky/bin.js || true",
+    "guard:markers": "bash tools/scripts/pre-push-no-markers.sh",
+    "guard:pre-push": "bash tools/scripts/pre-push.sh"
   },
   "devDependencies": {
+    "husky": "^9.1.7",
     "turbo": "^2.5.0"
   }
 }

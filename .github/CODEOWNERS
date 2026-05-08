@@ -1,0 +1,36 @@
+# CODEOWNERS — auto-assigns reviewers per path.
+#
+# Format: <pattern>  @user1 @user2
+# Last matching pattern wins.
+#
+# Replace the placeholder usernames before merging this file to master.
+# Until then, every PR will request a review from the repo owner.
+
+# Default owner — every PR gets at least this reviewer.
+*                                      @Rajveerx11
+
+# Backend / Rust ----------------------------------------------------------
+apps/desktop/src-tauri/                @Rajveerx11
+apps/desktop/src-tauri/migrations/     @Rajveerx11
+apps/desktop/src-tauri/src/services/   @Rajveerx11
+apps/desktop/src-tauri/src/providers/  @Rajveerx11
+
+# Frontend / React --------------------------------------------------------
+apps/desktop/src/                      @Rajveerx11
+apps/desktop/src/components/           @Rajveerx11
+apps/desktop/src/lib/ipc/              @Rajveerx11
+
+# Shared contracts (Zod ↔ serde) -----------------------------------------
+packages/shared/                       @Rajveerx11
+
+# Build / CI / release ---------------------------------------------------
+.github/                               @Rajveerx11
+tools/scripts/                         @Rajveerx11
+.husky/                                @Rajveerx11
+
+# Docs --------------------------------------------------------------------
+README.md                              @Rajveerx11
+CONTRIBUTING.md                        @Rajveerx11
+docs/                                  @Rajveerx11
+plan/                                  @Rajveerx11
+rules/                                 @Rajveerx11

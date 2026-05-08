@@ -1,0 +1,12 @@
+#!/usr/bin/env sh
+# Pre-push guard — full local CI parity (lint + typecheck + tests +
+# clippy). Refuses the push if anything fails so broken code never
+# reaches the remote.
+#
+# To bypass in a real emergency: `git push --no-verify`. Do not make a
+# habit of it — CI will reject the same change anyway.
+
+set -e
+
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+exec bash "$REPO_ROOT/tools/scripts/pre-push.sh"
