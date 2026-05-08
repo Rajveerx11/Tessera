@@ -157,12 +157,19 @@ export function EditorPanel() {
 
 function EmptyState() {
   // Stitch empty-state pattern — centred copy over the mosaic
-  // watermark, monospace brand mark to reinforce the IDE feel.
+  // watermark, logo + monospace brand mark to reinforce the IDE feel.
   return (
     <div className="relative flex flex-1 flex-col items-center justify-center p-8 text-center">
       <div className="bg-mosaic" aria-hidden="true" />
-      <div className="relative z-10">
-        <span className="font-brand text-primary/70 text-2xl">tessera</span>
+      <div className="relative z-10 flex flex-col items-center">
+        <img
+          src="/tessera-logo.png"
+          alt=""
+          aria-hidden="true"
+          className="mb-3 size-16 rounded-lg opacity-80"
+          draggable="false"
+        />
+        <span className="font-brand text-primary/70 text-xl">tessera</span>
         <h2 className="mt-3 text-base font-semibold tracking-tight text-foreground">
           No file open
         </h2>

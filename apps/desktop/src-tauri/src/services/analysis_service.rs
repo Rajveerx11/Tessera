@@ -29,6 +29,18 @@ use crate::services::{ast_service, chunking_service, file_discovery_service};
 
 const EMBEDDING_BATCH_SIZE: usize = 32;
 
+/// Hard cap on the number of characters sent to the embedding endpoint
+/// per chunk. Ollama's default `nomic-embed-text` exposes a 2048-token
+/// context window; at the project's 4-chars-per-token heuristic
+/// (`approximate_token_count`) that is ~8 KB per input. We leave a
+/// headroom of ~512 tokens for the prompt template the embedding model
+/// adds internally, landing on 6 000 chars.
+///
+/// Chunks longer than this are truncated *only* for the embedding
+/// call. The full chunk content is still persisted so RAG search hits
+/// return the complete symbol body to the LLM downstream.
+const EMBEDDING_INPUT_CHAR_CAP: usize = 6_000;
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AnalysisOutcome {
@@ -176,7 +188,21 @@ async fn run_pipeline(
         let batch_end = (batch_start + EMBEDDING_BATCH_SIZE).min(all_chunk_inserts.len());
         let batch = &all_chunk_inserts[batch_start..batch_end];
 
-        let texts: Vec<String> = batch.iter().map(|(_, _, c)| c.content.clone()).collect();
+        // Truncate per-chunk content to fit the embedding model's
+        // context window. Without this guard, a single oversize
+        // chunk (e.g. a generated file or minified JS) makes Ollama
+        // return `HTTP 400 the input length exceeds the context
+        // length` and the whole analyze pipeline fails.
+        let texts: Vec<String> = batch
+            .iter()
+            .map(|(_, _, c)| {
+                if c.content.len() <= EMBEDDING_INPUT_CHAR_CAP {
+                    c.content.clone()
+                } else {
+                    truncate_to_char_boundary(&c.content, EMBEDDING_INPUT_CHAR_CAP)
+                }
+            })
+            .collect();
         let vectors = embeddings.embed(texts).await?;
 
         let dim = u32::try_from(embeddings.dimension()).unwrap_or(u32::MAX);
@@ -218,6 +244,22 @@ async fn run_pipeline(
         chunks_embedded,
         total_size_bytes: report.total_size_bytes,
     })
+}
+
+/// Truncate `s` to at most `max_bytes` *bytes* while keeping the cut
+/// on a UTF-8 char boundary so the resulting string is still valid
+/// UTF-8. `String::truncate` panics if it slices through a multi-byte
+/// codepoint; this helper steps the cut backwards until it lands on a
+/// boundary.
+fn truncate_to_char_boundary(s: &str, max_bytes: usize) -> String {
+    if s.len() <= max_bytes {
+        return s.to_string();
+    }
+    let mut cut = max_bytes;
+    while cut > 0 && !s.is_char_boundary(cut) {
+        cut -= 1;
+    }
+    s[..cut].to_string()
 }
 
 #[cfg(test)]

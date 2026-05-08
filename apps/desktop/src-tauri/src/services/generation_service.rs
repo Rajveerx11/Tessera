@@ -306,18 +306,25 @@ async fn retrieve_chunks(
     request: &GenerationRequest,
     deps: &GenerationDeps<'_>,
 ) -> AppResult<Vec<CodeChunk>> {
-    // Code-grounded artifacts (test_cases, defect_report, bug_report)
-    // require concrete symbols in the prompt or the model emits an
-    // empty `cases` / `defects` / `bugs` array, which fails JSON-Schema
-    // validation downstream. When the caller does not supply a
-    // `scope_hint`, fall back to a generic phrase so RAG returns *some*
-    // chunks instead of an empty list.
+    // Every artifact type needs concrete symbols in the prompt or the
+    // model emits an apologetic "no code provided" payload (Context /
+    // TestPlan) or an empty `cases` / `defects` / `bugs` array that
+    // fails JSON-Schema validation (TestCases / DefectReport /
+    // BugReport). When the caller does not supply a `scope_hint`,
+    // fall back to a generic phrase so RAG returns *some* chunks
+    // instead of an empty list. ContextMd + TestPlan get a slightly
+    // broader phrase ("project overview, core modules…") because the
+    // prompts are whole-project rather than scope-targeted.
     let scope_provided = !request.scope_hint.trim().is_empty();
     let effective_query = if scope_provided {
         request.scope_hint.clone()
     } else {
         match request.artifact_type {
-            ArtifactType::ContextMd | ArtifactType::TestPlan => String::new(),
+            ArtifactType::ContextMd | ArtifactType::TestPlan => format!(
+                "project overview, core modules, public APIs, exported functions, \
+                 classes, and entry points of {}",
+                request.project_name
+            ),
             ArtifactType::TestCases
             | ArtifactType::DefectReport
             | ArtifactType::BugReport => format!(

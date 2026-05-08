@@ -76,13 +76,19 @@ function Header({ step }: { step: Step }) {
   const labels = ['Welcome', 'Hardware', 'Engine', 'Model'];
   return (
     <div className="bg-surface-3 shrink-0 border-b border-border p-6">
-      <div className="mb-3 flex items-center justify-between">
-        <h1 className="flex items-center gap-2">
-          <span className="font-brand text-primary text-lg">tessera</span>
-          <span
-            className="text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground"
-          >
-            setup · step {step} of 4
+      <div className="mb-3 flex items-center justify-between gap-3">
+        <h1 className="flex items-center gap-3">
+          <img
+            src="/tessera-logo.png"
+            alt="Tessera"
+            className="size-8 rounded-md shrink-0"
+            draggable="false"
+          />
+          <span className="flex items-baseline gap-2">
+            <span className="font-brand text-primary text-lg">tessera</span>
+            <span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+              setup · step {step} of 4
+            </span>
           </span>
         </h1>
         <span className="text-muted-foreground text-[10px] font-mono">

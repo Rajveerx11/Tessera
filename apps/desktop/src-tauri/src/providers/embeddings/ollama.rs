@@ -126,6 +126,26 @@ impl EmbeddingProvider for OllamaEmbeddingProvider {
                 .take(256)
                 .collect();
             return Err(match status.as_u16() {
+                400 if preview.contains("input length")
+                    || preview.contains("context length")
+                    || preview.contains("exceed") =>
+                {
+                    // Ollama surfaces oversize-input errors as HTTP 400
+                    // with `the input length exceeds the context length`.
+                    // The pipeline should already truncate per-chunk
+                    // input (see `analysis_service::EMBEDDING_INPUT_CHAR_CAP`);
+                    // catching it here makes regressions obvious instead
+                    // of opaque.
+                    LlmError::InvalidResponse {
+                        provider: PROVIDER_NAME,
+                        message: format!(
+                            "embedding input exceeds the `{}` context window. \
+                             Truncate inputs upstream or switch to a model \
+                             with a larger context. Raw: {preview}",
+                            self.model,
+                        ),
+                    }
+                }
                 401 | 403 => LlmError::AuthFailed {
                     provider: PROVIDER_NAME,
                     message: preview,

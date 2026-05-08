@@ -66,12 +66,12 @@ export function FileExplorer() {
 
   return (
     <div className="flex h-full flex-col overflow-hidden bg-card">
-      <div className="flex h-8 shrink-0 items-center justify-between border-b border-border bg-card px-3">
-        <span className="text-[11px] font-semibold uppercase tracking-[0.12em] text-foreground">
-          Project Explorer
+      <div className="flex h-8 shrink-0 items-center gap-2 border-b border-border bg-card px-3">
+        <span className="text-[11px] font-semibold uppercase tracking-[0.08em] text-foreground whitespace-nowrap">
+          Explorer
         </span>
         <span
-          className="truncate font-mono text-[10px] text-muted-foreground"
+          className="text-muted-foreground/60 truncate font-mono text-[10px]"
           title={project.rootPath}
         >
           {project.name}

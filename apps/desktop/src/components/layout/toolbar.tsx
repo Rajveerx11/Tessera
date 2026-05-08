@@ -142,7 +142,13 @@ export function Toolbar() {
 
   return (
     <header className="flex h-10 shrink-0 items-center justify-between border-b border-border bg-card px-3">
-      <div className="flex items-center gap-3">
+      <div className="flex min-w-0 items-center gap-2.5">
+        <img
+          src="/tessera-logo.png"
+          alt="Tessera"
+          className="size-6 rounded-sm shrink-0"
+          draggable="false"
+        />
         <span className="font-brand text-primary text-base">tessera</span>
         {project ? (
           <>
