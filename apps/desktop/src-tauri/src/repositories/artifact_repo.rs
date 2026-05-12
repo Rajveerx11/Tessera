@@ -286,6 +286,78 @@ pub async fn update_status(pool: &SqlitePool, id: &str, status: ArtifactStatus) 
     Ok(())
 }
 
+/// Lightweight projection used by the version-history dropdown in
+/// the artifact detail drawer. Excludes the heavy `content_md` /
+/// `structured_data` columns so the dropdown can list a long
+/// version chain without dragging full Markdown bodies into the
+/// renderer just to render menu rows.
+#[derive(Debug, Clone)]
+pub struct ArtifactVersionRow {
+    pub id: String,
+    pub version: i64,
+    pub status: ArtifactStatus,
+    pub title: String,
+    pub created_at: String,
+    pub parent_id: Option<String>,
+}
+
+/// Walk the bidirectional lineage chain (ancestors + self +
+/// descendants) for `id`, sorted by `version` ascending so the
+/// renderer can show v1 → v2 → … → vN without re-sorting.
+///
+/// Implemented as a single recursive CTE that grows the visited set
+/// in both directions and `UNION` (not `UNION ALL`) so cycles in
+/// data — should never happen, but defensively — cannot deadlock
+/// the query.
+///
+/// # Errors
+///
+/// - [`AppError::NotFound`] when no artifact matches `id`.
+/// - [`AppError::Database`] for SQLx-level failures.
+/// - [`AppError::Serde`] when the stored `status` column does not
+///   match any [`ArtifactStatus`] variant (corruption detection).
+pub async fn list_version_chain(
+    pool: &SqlitePool,
+    id: &str,
+) -> AppResult<Vec<ArtifactVersionRow>> {
+    let rows: Vec<(String, i64, String, String, String, Option<String>)> = sqlx::query_as(
+        "WITH RECURSIVE lineage(id) AS ( \
+             SELECT id FROM artifacts WHERE id = ? \
+             UNION \
+             SELECT a.id FROM artifacts a JOIN lineage l ON a.id = l.parent_id \
+             UNION \
+             SELECT a.id FROM artifacts a JOIN lineage l ON a.parent_id = l.id \
+         ) \
+         SELECT id, version, status, title, created_at, parent_id \
+         FROM artifacts WHERE id IN (SELECT id FROM lineage) ORDER BY version ASC",
+    )
+    .bind(id)
+    .fetch_all(pool)
+    .await?;
+
+    if rows.is_empty() {
+        return Err(AppError::NotFound(format!("artifact {id}")));
+    }
+
+    rows.into_iter()
+        .map(|(id, version, status_s, title, created_at, parent_id)| {
+            let status = ArtifactStatus::from_str_value(&status_s).ok_or_else(|| {
+                AppError::Database(sqlx::Error::Decode(
+                    format!("unknown artifact status `{status_s}`").into(),
+                ))
+            })?;
+            Ok(ArtifactVersionRow {
+                id,
+                version,
+                status,
+                title,
+                created_at,
+                parent_id,
+            })
+        })
+        .collect()
+}
+
 async fn max_version_in_chain(pool: &SqlitePool, parent_id: &str) -> AppResult<i64> {
     // Walk up to the root by following parent_id, then take the max
     // version across the whole chain. Bounded depth in practice; the

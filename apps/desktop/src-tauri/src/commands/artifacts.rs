@@ -117,6 +117,44 @@ pub async fn get_artifact(
         .map_err(|e| e.to_string())
 }
 
+/// Lightweight version-chain entry — drives the version picker in
+/// the artifact detail drawer. Excludes the markdown body so the
+/// renderer can fetch the whole chain in one IPC round-trip without
+/// paying the full content cost for every row.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ArtifactVersionSummary {
+    pub id: String,
+    pub version: i64,
+    pub status: String,
+    pub title: String,
+    pub created_at: String,
+    pub parent_id: Option<String>,
+}
+
+#[tauri::command]
+#[allow(clippy::needless_pass_by_value)]
+pub async fn list_artifact_versions(
+    pool: State<'_, SqlitePool>,
+    id: String,
+) -> Result<Vec<ArtifactVersionSummary>, String> {
+    artifact_repo::list_version_chain(&pool, &id)
+        .await
+        .map(|rows| {
+            rows.into_iter()
+                .map(|r| ArtifactVersionSummary {
+                    id: r.id,
+                    version: r.version,
+                    status: r.status.as_str().to_string(),
+                    title: r.title,
+                    created_at: r.created_at,
+                    parent_id: r.parent_id,
+                })
+                .collect()
+        })
+        .map_err(|e| e.to_string())
+}
+
 #[tauri::command]
 #[allow(clippy::needless_pass_by_value)]
 pub async fn approve_artifact(pool: State<'_, SqlitePool>, id: String) -> Result<(), String> {

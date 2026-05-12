@@ -110,6 +110,7 @@ pub fn run() {
             // Artifact commands (Phase 11)
             commands::artifacts::list_artifacts,
             commands::artifacts::get_artifact,
+            commands::artifacts::list_artifact_versions,
             commands::artifacts::approve_artifact,
             commands::artifacts::reject_artifact,
             // Health / system commands

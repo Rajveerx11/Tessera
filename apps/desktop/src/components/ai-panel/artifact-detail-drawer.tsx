@@ -1,6 +1,10 @@
-import type { ArtifactDetail, ArtifactSummary } from '@testing-ide/shared';
-import { CheckCircle2, Download, Loader2, RefreshCw, X, XCircle } from 'lucide-react';
-import { useCallback, useEffect, useState } from 'react';
+import type {
+  ArtifactDetail,
+  ArtifactSummary,
+  ArtifactVersionSummary,
+} from '@testing-ide/shared';
+import { CheckCircle2, Download, GitCompare, Loader2, RefreshCw, X, XCircle } from 'lucide-react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { MarkdownView } from '@/components/markdown/markdown-view';
 import { Button } from '@/components/ui/button';
@@ -10,6 +14,8 @@ import { exportMarkdownDocument } from '@/lib/export-markdown';
 import { artifacts as artifactsIpc, generation, IpcError } from '@/lib/ipc';
 import { useAiStore } from '@/stores/ai-store';
 import { useWorkspaceStore } from '@/stores/workspace-store';
+
+import { DiffView } from './diff-view';
 
 type Props = {
   summary: ArtifactSummary;
@@ -34,6 +40,21 @@ export function ArtifactDetailDrawer({ summary, onClose }: Props) {
   const [exporting, setExporting] = useState(false);
   const [exportStatus, setExportStatus] = useState<string | null>(null);
 
+  // Version chain — fetched lazily when the version picker or diff
+  // toggle is used. Empty array means "not loaded yet"; once loaded
+  // includes at least one entry (the current artifact itself).
+  const [chain, setChain] = useState<ArtifactVersionSummary[]>([]);
+  const [chainLoading, setChainLoading] = useState(false);
+
+  // Drawer view mode + comparison base. Diff mode renders a
+  // line-level unified diff against the body of `compareId`; the
+  // default base is the artifact's `parentId` so "show diff" is
+  // sensible on a regenerated v2/v3/… without any picker work.
+  const [viewMode, setViewMode] = useState<'content' | 'diff'>('content');
+  const [compareId, setCompareId] = useState<string | null>(null);
+  const [compareDetail, setCompareDetail] = useState<ArtifactDetail | null>(null);
+  const [compareLoading, setCompareLoading] = useState(false);
+
   const project = useWorkspaceStore((s) => s.project);
   const activeProvider = useAiStore((s) => s.activeProvider);
   const upsertArtifact = useAiStore((s) => s.upsertArtifact);
@@ -56,6 +77,73 @@ export function ArtifactDetailDrawer({ summary, onClose }: Props) {
       cancelled = true;
     };
   }, [summary.id]);
+
+  // Fetch the full version chain when the drawer mounts so the
+  // "Diff" toggle in the header can flip to diff mode in a single
+  // click. The chain endpoint is cheap (lightweight projection) so
+  // the eager fetch is fine even for artifacts the user never
+  // diffs.
+  useEffect(() => {
+    let cancelled = false;
+    setChainLoading(true);
+    void (async () => {
+      try {
+        const list = await artifactsIpc.listArtifactVersions(summary.id);
+        if (cancelled) return;
+        setChain(list);
+        // Default comparison target = direct parent. Fall back to
+        // "previous version in the chain" when the current artifact
+        // has no parent_id but the chain has earlier entries (the
+        // user may have opened a child whose root is older).
+        const fallback =
+          summary.parentId ??
+          (() => {
+            const idx = list.findIndex((v) => v.id === summary.id);
+            return idx > 0 ? (list[idx - 1]?.id ?? null) : null;
+          })();
+        setCompareId(fallback);
+      } catch {
+        // Chain is a UI nicety — if it fails the user can still
+        // approve / reject / regenerate, so swallow the error.
+      } finally {
+        if (!cancelled) setChainLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [summary.id, summary.parentId]);
+
+  // Lazy-load the comparison body once the user actually flips to
+  // diff mode AND a base is selected. Caches per-id so flipping
+  // back and forth between content + diff does not re-fetch.
+  useEffect(() => {
+    if (viewMode !== 'diff') return;
+    if (compareId === null) return;
+    if (compareDetail !== null && compareDetail.id === compareId) return;
+    let cancelled = false;
+    setCompareLoading(true);
+    void (async () => {
+      try {
+        const d = await artifactsIpc.getArtifact(compareId);
+        if (!cancelled) setCompareDetail(d);
+      } catch (err) {
+        if (!cancelled) setError(err instanceof IpcError ? err.message : String(err));
+      } finally {
+        if (!cancelled) setCompareLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [viewMode, compareId, compareDetail]);
+
+  const baseVersion = useMemo(() => {
+    if (compareId === null) return null;
+    return chain.find((v) => v.id === compareId) ?? null;
+  }, [chain, compareId]);
+
+  const canDiff = chain.length > 1 && compareId !== null && compareId !== summary.id;
 
   const handleApprove = useCallback(() => {
     void (async () => {
@@ -168,6 +256,27 @@ export function ArtifactDetailDrawer({ summary, onClose }: Props) {
               <span className={`pill pill-${summary.status.replace('_', '-')}`}>
                 {summary.status.replace('_', ' ')}
               </span>
+              {chain.length > 1 ? (
+                <select
+                  aria-label="Compare against version"
+                  value={compareId ?? ''}
+                  onChange={(e) => {
+                    const next = e.target.value.length === 0 ? null : e.target.value;
+                    setCompareId(next);
+                    setCompareDetail(null);
+                  }}
+                  className="bg-surface-2 border-border focus-visible:border-primary focus-visible:ring-primary/40 text-muted-foreground hover:text-foreground h-5 rounded border px-1 font-mono text-[10px] transition-colors focus-visible:outline-none focus-visible:ring-2"
+                >
+                  <option value="">no compare</option>
+                  {chain
+                    .filter((v) => v.id !== summary.id)
+                    .map((v) => (
+                      <option key={v.id} value={v.id}>
+                        compare vs v{v.version}
+                      </option>
+                    ))}
+                </select>
+              ) : null}
             </div>
             <h2
               id={titleId}
@@ -180,9 +289,24 @@ export function ArtifactDetailDrawer({ summary, onClose }: Props) {
               {summary.provider} · {summary.model}
             </p>
           </div>
-          <Button type="button" size="icon" variant="ghost" onClick={onClose} aria-label="Close">
-            <X className="size-4" />
-          </Button>
+          <div className="flex items-center gap-1">
+            <Button
+              type="button"
+              size="sm"
+              variant={viewMode === 'diff' ? 'secondary' : 'ghost'}
+              onClick={() => setViewMode((m) => (m === 'diff' ? 'content' : 'diff'))}
+              disabled={!canDiff}
+              aria-pressed={viewMode === 'diff'}
+              aria-label="Toggle diff view"
+              title={canDiff ? 'Toggle diff view' : 'Need at least two versions to diff'}
+            >
+              <GitCompare className="size-3.5" />
+              Diff
+            </Button>
+            <Button type="button" size="icon" variant="ghost" onClick={onClose} aria-label="Close">
+              <X className="size-4" />
+            </Button>
+          </div>
         </header>
 
         <div className="flex-1 overflow-y-auto p-4">
@@ -195,6 +319,15 @@ export function ArtifactDetailDrawer({ summary, onClose }: Props) {
             <p className="text-muted-foreground flex items-center gap-2 text-sm">
               <Loader2 className="size-3 animate-spin" /> Loading…
             </p>
+          ) : viewMode === 'diff' ? (
+            <DiffBody
+              chainLoading={chainLoading}
+              compareLoading={compareLoading}
+              currentDetail={detail}
+              compareDetail={compareDetail}
+              currentVersion={summary.version}
+              baseVersion={baseVersion?.version ?? null}
+            />
           ) : detail !== null ? (
             <MarkdownView source={detail.contentMd} />
           ) : null}
@@ -283,5 +416,52 @@ export function ArtifactDetailDrawer({ summary, onClose }: Props) {
           {exportStatus !== null ? <p className="text-muted-foreground text-[10px]">{exportStatus}</p> : null}
         </footer>
     </Dialog>
+  );
+}
+
+/**
+ * Diff-mode body. Pulled out of the main component so the
+ * loading-state ternary in the dialog stays readable.
+ */
+function DiffBody({
+  chainLoading,
+  compareLoading,
+  currentDetail,
+  compareDetail,
+  currentVersion,
+  baseVersion,
+}: {
+  chainLoading: boolean;
+  compareLoading: boolean;
+  currentDetail: ArtifactDetail | null;
+  compareDetail: ArtifactDetail | null;
+  currentVersion: number;
+  baseVersion: number | null;
+}) {
+  if (chainLoading || compareLoading) {
+    return (
+      <p className="text-muted-foreground flex items-center gap-2 text-sm">
+        <Loader2 className="size-3 animate-spin" />
+        Loading versions…
+      </p>
+    );
+  }
+  if (currentDetail === null) {
+    return null;
+  }
+  if (compareDetail === null || baseVersion === null) {
+    return (
+      <p className="text-muted-foreground text-xs">
+        No earlier version to compare against. Pick a base in the header dropdown.
+      </p>
+    );
+  }
+  return (
+    <DiffView
+      before={compareDetail.contentMd}
+      after={currentDetail.contentMd}
+      beforeLabel={`v${baseVersion}`}
+      afterLabel={`v${currentVersion}`}
+    />
   );
 }

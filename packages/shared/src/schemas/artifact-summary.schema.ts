@@ -62,3 +62,19 @@ export const ArtifactDetailSchema = z.object({
 });
 
 export type ArtifactDetail = z.infer<typeof ArtifactDetailSchema>;
+
+/**
+ * Version-chain entry — lightweight projection used by the version
+ * picker dropdown in the artifact detail drawer. Mirrors
+ * `ArtifactVersionSummary` in `commands/artifacts.rs`.
+ */
+export const ArtifactVersionSummarySchema = z.object({
+  id: z.string().uuid(),
+  version: z.number().int().positive(),
+  status: ArtifactLifecycleStatusSchema,
+  title: z.string().min(1),
+  createdAt: IsoDateTimeSchema,
+  parentId: z.string().uuid().nullable().optional(),
+});
+
+export type ArtifactVersionSummary = z.infer<typeof ArtifactVersionSummarySchema>;
