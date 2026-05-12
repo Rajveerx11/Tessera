@@ -10,10 +10,14 @@ import { AppShell } from '@/components/layout/app-shell';
 import { SettingsSheet } from '@/components/settings/settings-sheet';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { useAppMenuEvents } from '@/lib/app-menu';
+import { COMMAND, useCommand } from '@/lib/command-bus';
+import { useGlobalShortcuts } from '@/lib/global-shortcuts';
 import { auth, IpcError, system } from '@/lib/ipc';
 import type { InitDbResponse } from '@/lib/ipc/system';
 import { readOnboardingFlag } from '@/lib/onboarding';
 import { useAuthStore } from '@/stores/auth-store';
+import { useUiStore } from '@/stores/ui-store';
 
 function formatZodError(err: ZodError): string {
   const flat = err.flatten();
@@ -43,6 +47,39 @@ function formatZodError(err: ZodError): string {
 export function App() {
   const [showWizard, setShowWizard] = useState<boolean>(() => !readOnboardingFlag());
   const [showDevPanel, setShowDevPanel] = useState(false);
+  const setSettingsOpen = useUiStore((s) => s.setSettingsOpen);
+
+  // Wire the native menu → command-bus bridge and the renderer-side
+  // keyboard shortcuts. Both hooks are idempotent on cleanup so a
+  // re-mount during HMR does not stack duplicate listeners.
+  useAppMenuEvents();
+  useGlobalShortcuts();
+
+  // Commands handled directly at the App level — Settings (no
+  // component owns the open action) and the two "open in external
+  // browser" Help items. Components closer to the action (Toolbar,
+  // AI panel) own the rest.
+  useCommand(
+    COMMAND.FileSettings,
+    useCallback(() => {
+      setSettingsOpen(true);
+    }, [setSettingsOpen]),
+  );
+  useCommand(
+    COMMAND.HelpDocs,
+    useCallback(() => {
+      // README is the source of truth for docs while the project is
+      // pre-launch — point at the canonical GitHub render so the link
+      // works even when the user has not pulled the repo.
+      window.open('https://github.com/Rajveerx11/Tessera#readme', '_blank', 'noopener');
+    }, []),
+  );
+  useCommand(
+    COMMAND.HelpGithub,
+    useCallback(() => {
+      window.open('https://github.com/Rajveerx11/Tessera', '_blank', 'noopener');
+    }, []),
+  );
 
   if (showWizard) {
     return <FirstRunWizard onComplete={() => setShowWizard(false)} />;

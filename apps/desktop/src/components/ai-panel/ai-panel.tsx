@@ -10,9 +10,10 @@ import {
   XCircle,
 } from 'lucide-react';
 import type { ReactNode } from 'react';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { Button } from '@/components/ui/button';
+import { COMMAND, useCommand } from '@/lib/command-bus';
 import {
   artifacts as artifactsIpc,
   generation,
@@ -146,11 +147,18 @@ export function AiPanel() {
     [project, activeProvider, generationStatus.status],
   );
 
+  // Track the last artifact type the user generated so the "Regenerate
+  // last" menu item / `Cmd/Ctrl+G` shortcut has something to re-fire.
+  // Kept in a ref so the AiRegenerate listener does not re-bind on
+  // every generation cycle.
+  const lastGeneratedTypeRef = useRef<GenerationArtifactType | null>(null);
+
   const handleGenerate = useCallback(
     (artifactType: GenerationArtifactType) => {
       if (project === null || activeProvider === null) return;
       const model = activeProvider.defaultModel;
       if (typeof model !== 'string' || model.length === 0) return;
+      lastGeneratedTypeRef.current = artifactType;
       setGeneration({ status: 'pending', artifactType, partial: '' });
       void (async () => {
         try {
@@ -188,6 +196,22 @@ export function AiPanel() {
       })();
     },
     [project, activeProvider, setGeneration, upsertArtifact],
+  );
+
+  // Regenerate-last command: re-runs `handleGenerate` against the
+  // most recent artifact type chosen via the button grid. Silently
+  // no-ops on the very first session before any generator has been
+  // clicked — the menu item still shows, but `Cmd/Ctrl+G` is a
+  // no-op rather than an error, which feels right when there is
+  // nothing to regenerate.
+  useCommand(
+    COMMAND.AiRegenerate,
+    useCallback(() => {
+      const last = lastGeneratedTypeRef.current;
+      if (last === null) return;
+      if (!canGenerate) return;
+      handleGenerate(last);
+    }, [canGenerate, handleGenerate]),
   );
 
   const handleApprove = useCallback(

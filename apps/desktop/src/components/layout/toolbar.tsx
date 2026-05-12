@@ -3,6 +3,7 @@ import { Check, Clock, FolderOpen, Loader2, Settings, X } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { Button } from '@/components/ui/button';
+import { COMMAND, useCommand } from '@/lib/command-bus';
 import { analysis as analysisIpc, filesystem, IpcError, projects } from '@/lib/ipc';
 import { useEditorStore } from '@/stores/editor-store';
 import { useUiStore } from '@/stores/ui-store';
@@ -111,6 +112,13 @@ export function Toolbar() {
     if (project === null) return;
     runAnalysis(project);
   }, [project, runAnalysis]);
+
+  // Command-bus subscriptions — fire the same handlers when the user
+  // hits the native menu items or keyboard shortcuts (`Cmd/Ctrl+O`,
+  // `Cmd/Ctrl+Shift+A`). No state is bypassed — handleOpenFolder /
+  // handleAnalyze are the same callbacks the buttons invoke.
+  useCommand(COMMAND.FileOpenFolder, handleOpenFolder);
+  useCommand(COMMAND.AiAnalyze, handleAnalyze);
 
   const isAnalyzing = analysisState.status === 'pending';
 

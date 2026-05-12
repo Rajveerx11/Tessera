@@ -18,6 +18,7 @@ pub mod commands;
 pub mod config;
 pub mod db;
 pub mod error;
+pub mod menu;
 pub mod prompts;
 pub mod providers;
 pub mod repositories;
@@ -70,6 +71,16 @@ pub fn run() {
                 utils::crypto::CryptoKey::derive_from_secret(&cfg_for_db_path.jwt_secret);
             tracing::info!("encryption key derived from JWT secret");
             app.manage(crypto_key);
+
+            // Native menu bar — Cmd/Ctrl+O open folder, Cmd/Ctrl+,
+            // settings, Cmd/Ctrl+G regenerate, About dialog, etc.
+            // Built per-window so each window gets its own attached
+            // menu instance; the renderer listens via the shared
+            // `app:menu` event channel.
+            let window = app
+                .get_webview_window("main")
+                .ok_or_else(|| "main window not found during setup".to_string())?;
+            menu::build_and_attach(app.handle(), &window).map_err(|e| e.to_string())?;
 
             Ok(())
         })

@@ -1,6 +1,12 @@
-import type { ReactNode } from 'react';
-import { Panel, PanelGroup, PanelResizeHandle } from 'react-resizable-panels';
+import { useCallback, useRef, type ReactNode } from 'react';
+import {
+  type ImperativePanelHandle,
+  Panel,
+  PanelGroup,
+  PanelResizeHandle,
+} from 'react-resizable-panels';
 
+import { COMMAND, useCommand } from '@/lib/command-bus';
 import { useUiStore, type PanelSizes } from '@/stores/ui-store';
 
 import { StatusBar } from './status-bar';
@@ -16,10 +22,20 @@ type Props = {
  * Three-panel workspace shell — file explorer | editor | AI panel.
  * Panel sizes persist to localStorage via `useUiStore`. Resize handles
  * are explicit DOM elements so they can be themed without `@ts-ignore`.
+ *
+ * The sidebar and AI panel can be toggled hidden via the View menu
+ * (`Cmd/Ctrl+B`, `Cmd/Ctrl+J`) or the equivalent keyboard shortcuts.
+ * Toggling goes through `ImperativePanelHandle.collapse()` /
+ * `.expand()` so `react-resizable-panels` re-balances the editor
+ * width on its own and `onLayout` fires the new sizes through the
+ * store for persistence.
  */
 export function AppShell({ sidebar, editor, aiPanel }: Props) {
   const panelSizes = useUiStore((s) => s.panelSizes);
   const setPanelSizes = useUiStore((s) => s.setPanelSizes);
+
+  const sidebarRef = useRef<ImperativePanelHandle | null>(null);
+  const aiPanelRef = useRef<ImperativePanelHandle | null>(null);
 
   const handleLayout = (sizes: number[]) => {
     if (sizes.length !== 3) return;
@@ -29,15 +45,35 @@ export function AppShell({ sidebar, editor, aiPanel }: Props) {
     setPanelSizes(next);
   };
 
+  const togglePanel = useCallback((handle: ImperativePanelHandle | null) => {
+    if (handle === null) return;
+    if (handle.isCollapsed()) {
+      handle.expand();
+    } else {
+      handle.collapse();
+    }
+  }, []);
+
+  useCommand(
+    COMMAND.ViewToggleSidebar,
+    useCallback(() => togglePanel(sidebarRef.current), [togglePanel]),
+  );
+  useCommand(
+    COMMAND.ViewToggleAiPanel,
+    useCallback(() => togglePanel(aiPanelRef.current), [togglePanel]),
+  );
+
   return (
     <div className="bg-background text-foreground flex h-screen w-screen flex-col overflow-hidden">
       <Toolbar />
       <div className="flex-1 overflow-hidden">
         <PanelGroup direction="horizontal" onLayout={handleLayout}>
           <Panel
+            ref={sidebarRef}
             defaultSize={panelSizes[0]}
             minSize={12}
             collapsible
+            collapsedSize={0}
             className="bg-card flex flex-col"
           >
             {sidebar}
@@ -48,9 +84,11 @@ export function AppShell({ sidebar, editor, aiPanel }: Props) {
           </Panel>
           <ResizeHandle />
           <Panel
+            ref={aiPanelRef}
             defaultSize={panelSizes[2]}
             minSize={18}
             collapsible
+            collapsedSize={0}
             className="bg-card flex flex-col"
           >
             {aiPanel}
