@@ -27,7 +27,11 @@ pub const DEFAULT_BASE_URL: &str = "https://openrouter.ai/api";
 /// `OpenRouter` for ranking on the public app leaderboard. No secrets
 /// here; safe to ship.
 pub const DEFAULT_REFERER: &str = "https://github.com/Rajveerx11/Tessera";
-pub const DEFAULT_TITLE: &str = "Tessera — AI Testing IDE";
+// Plain ASCII only — `reqwest::HeaderValue::from_str` rejects
+// non-ASCII bytes per RFC 9110, so the em-dash glyph cannot land in
+// the `x-title` attribution header. An ASCII hyphen carries the
+// same meaning to the OpenRouter leaderboard parser.
+pub const DEFAULT_TITLE: &str = "Tessera - AI Testing IDE";
 
 const DEFAULT_TIMEOUT_SECONDS: u64 = 120;
 
