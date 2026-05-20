@@ -190,37 +190,8 @@ pub async fn generate(
     };
     let aggregated = drive_stream(deps.llm.as_ref(), llm_request, on_event.as_mut()).await?;
 
-    // 5. Parse the structured payload. Preferred path is the tool
-    // call; fall back to salvaging a JSON object from free text when
-    // the model ignored the `tools` field (common with small Ollama
-    // models). When both are empty, surface a clear "swap to a
-    // tool-capable model" error instead of an opaque "0 chars".
-    let raw_json = if !aggregated.tool_args.trim().is_empty() {
-        aggregated.tool_args.clone()
-    } else if let Some(salvaged) =
-        salvage_tool_args(&aggregated.text, &tool_schema.name)
-    {
-        tracing::warn!(
-            model = %request.model,
-            text_len = aggregated.text_len,
-            "model emitted JSON as free text instead of invoking the tool — salvaging"
-        );
-        salvaged
-    } else if aggregated.text_len == 0 {
-        return Err(AppError::InvalidInput(format!(
-            "model `{}` returned an empty response. Tool calling may not be \
-             supported by this model — try `qwen2.5-coder:7b`, `qwen2.5:14b`, \
-             or a cloud model like `gpt-4o-mini` / `claude-3-5-sonnet`.",
-            request.model
-        )));
-    } else {
-        let preview: String = aggregated.text.chars().take(200).collect();
-        return Err(AppError::InvalidInput(format!(
-            "model `{}` did not invoke `{}` and emitted {} chars of free text \
-             that does not contain a JSON object. Preview: {}",
-            request.model, tool_schema.name, aggregated.text_len, preview
-        )));
-    };
+    // 5. Parse the structured payload.
+    let raw_json = extract_raw_json(&aggregated, &tool_schema, &request.model)?;
 
     let structured_data: JsonValue =
         serde_json::from_str(&raw_json).map_err(AppError::Serde)?;
@@ -265,6 +236,42 @@ pub async fn generate(
         usage_input_tokens: input_tokens,
         usage_output_tokens: output_tokens,
     })
+}
+
+/// Resolve the raw JSON string from a completed stream aggregate.
+/// Preferred path: tool-call args. Fallback: salvage a JSON object from
+/// free text (common with small Ollama models). Both empty: descriptive
+/// error suggesting a tool-capable model.
+fn extract_raw_json(
+    aggregated: &StreamAggregate,
+    tool_schema: &ToolSchema,
+    model: &str,
+) -> AppResult<String> {
+    if !aggregated.tool_args.trim().is_empty() {
+        return Ok(aggregated.tool_args.clone());
+    }
+    if let Some(salvaged) = salvage_tool_args(&aggregated.text, &tool_schema.name) {
+        tracing::warn!(
+            model = %model,
+            text_len = aggregated.text_len,
+            "model emitted JSON as free text instead of invoking the tool — salvaging"
+        );
+        return Ok(salvaged);
+    }
+    if aggregated.text_len == 0 {
+        return Err(AppError::InvalidInput(format!(
+            "model `{}` returned an empty response. Tool calling may not be \
+             supported by this model — try `qwen2.5-coder:7b`, `qwen2.5:14b`, \
+             or a cloud model like `gpt-4o-mini` / `claude-3-5-sonnet`.",
+            model
+        )));
+    }
+    let preview: String = aggregated.text.chars().take(200).collect();
+    Err(AppError::InvalidInput(format!(
+        "model `{}` did not invoke `{}` and emitted {} chars of free text \
+         that does not contain a JSON object. Preview: {}",
+        model, tool_schema.name, aggregated.text_len, preview
+    )))
 }
 
 /// Result of draining the LLM stream — extracted so [`generate`] stays
