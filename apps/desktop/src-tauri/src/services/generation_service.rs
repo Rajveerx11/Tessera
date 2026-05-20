@@ -197,7 +197,9 @@ pub async fn generate(
     // tool-capable model" error instead of an opaque "0 chars".
     let raw_json = if !aggregated.tool_args.trim().is_empty() {
         aggregated.tool_args.clone()
-    } else if let Some(salvaged) = salvage_json_from_text(&aggregated.text) {
+    } else if let Some(salvaged) =
+        salvage_tool_args(&aggregated.text, &tool_schema.name)
+    {
         tracing::warn!(
             model = %request.model,
             text_len = aggregated.text_len,
@@ -339,7 +341,48 @@ async fn drive_stream(
 /// prefixed with prose, sometimes with a trailing comment. This
 /// salvage path finds the outermost balanced `{...}` and returns it
 /// for downstream schema validation.
-fn salvage_json_from_text(text: &str) -> Option<String> {
+/// Try to salvage tool-call arguments out of a free-text response.
+///
+/// Three shapes are observed from small / non-tool-trained models:
+///
+///  1. Direct payload: `{"summary": "...", "cases": [...]}`
+///  2. Tool-call wrapper that names the expected tool:
+///     `{"name": "emit_test_plan", "arguments": {...}}`. Some Ollama
+///     models emit this when they "understand" `tools` but cannot
+///     route it through the protocol — we unwrap to the inner
+///     `arguments` object so downstream JSON-Schema validation sees
+///     the same shape as a successful tool call.
+///  3. Same wrapper but the model wraps a *case* (not the whole
+///     payload): `{"name": "TC-1", "arguments": {...}}`. In that
+///     case we cannot recover — the salvaged JSON is a fragment of
+///     the expected `cases` array. Return `None` so the caller
+///     surfaces a clear "swap model" error.
+///
+/// Returns the JSON string ready for `validate_tool_output`.
+pub(crate) fn salvage_tool_args(text: &str, tool_name: &str) -> Option<String> {
+    let raw = salvage_json_from_text(text)?;
+    let parsed: serde_json::Value = serde_json::from_str(&raw).ok()?;
+    if let Some(obj) = parsed.as_object() {
+        // Shape (2): wrapper that targets the expected tool name.
+        if let (Some(JsonValue::String(name)), Some(args)) =
+            (obj.get("name"), obj.get("arguments"))
+        {
+            if name == tool_name {
+                return serde_json::to_string(args).ok();
+            }
+            // Shape (3): wrapper targets something other than the
+            // expected tool — most often a per-item id like "TC-1".
+            // Caller treats this as "no salvage possible" and surfaces
+            // the error.
+            if !name.contains(tool_name) {
+                return None;
+            }
+        }
+    }
+    Some(raw)
+}
+
+pub(crate) fn salvage_json_from_text(text: &str) -> Option<String> {
     let bytes = text.as_bytes();
     // Locate first `{` that begins a balanced object — many models
     // wrap the JSON in markdown fences or chatty preamble.
@@ -1023,5 +1066,44 @@ mod tests {
             salvage_json_from_text(text).as_deref(),
             Some("{\"outer\":{\"inner\":{\"deep\":1}}}"),
         );
+    }
+
+    #[test]
+    fn salvage_tool_args_returns_bare_payload_unchanged() {
+        // Direct payload — no wrapper, return as-is.
+        let text = "{\"summary\":\"plan\",\"cases\":[]}";
+        let got = salvage_tool_args(text, "emit_test_plan").expect("salvage");
+        let parsed: serde_json::Value = serde_json::from_str(&got).unwrap();
+        assert_eq!(parsed["summary"], "plan");
+    }
+
+    #[test]
+    fn salvage_tool_args_unwraps_matching_tool_call_wrapper() {
+        // Model emitted `{"name": "<tool>", "arguments": {...}}` —
+        // unwrap to the inner arguments object.
+        let text = "Here is the call:\n```json\n\
+            {\"name\":\"emit_test_plan\",\"arguments\":{\"summary\":\"ok\",\"cases\":[]}}\n\
+            ```";
+        let got = salvage_tool_args(text, "emit_test_plan").expect("salvage");
+        let parsed: serde_json::Value = serde_json::from_str(&got).unwrap();
+        assert_eq!(parsed["summary"], "ok");
+        assert!(parsed.get("name").is_none());
+    }
+
+    #[test]
+    fn salvage_tool_args_rejects_per_item_wrapper() {
+        // The model wrapped a single case row inside a tool-call
+        // shell that names the case id, not the tool. We cannot
+        // recover the full `cases` array from one row, so we return
+        // None and let the caller surface a clear error.
+        let text = "```json\n\
+            {\"name\":\"TC-1\",\"arguments\":{\"title\":\"x\"}}\n\
+            ```";
+        assert!(salvage_tool_args(text, "emit_test_cases").is_none());
+    }
+
+    #[test]
+    fn salvage_tool_args_returns_none_for_no_json() {
+        assert!(salvage_tool_args("just prose", "emit_test_plan").is_none());
     }
 }

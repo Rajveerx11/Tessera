@@ -240,9 +240,24 @@ fn extract_tool_arguments(response_content: &[Content], tool_name: &str) -> Resu
         }
     }
 
+    // Small / non-tool-trained models often ignore the `tools`
+    // parameter and emit the JSON payload as plain text. The probe
+    // mirrors the production salvage path in
+    // `generation_service::salvage_tool_args` which handles three
+    // shapes: bare payload, name+arguments tool-call wrapper, and
+    // per-item wrappers (rejected). Keeps the golden suite green on
+    // the same model the desktop ships with (`qwen2.5-coder:1.5b`
+    // in CI, `qwen2.5-coder:7b` locally).
+    if let Some(salvaged) =
+        crate::services::generation_service::salvage_tool_args(&free_text, tool_name)
+    {
+        return Ok(salvaged);
+    }
+
     let preview: String = free_text.chars().take(240).collect();
     Err(anyhow!(
-        "model did not invoke `{tool_name}`; free-text preview: {preview}"
+        "model did not invoke `{tool_name}` and free text contained no JSON object; \
+         preview: {preview}"
     ))
 }
 

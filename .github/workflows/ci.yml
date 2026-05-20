@@ -244,7 +244,7 @@ jobs:
 
       - name: Pull Ollama integration models
         run: |
-          docker exec "$OLLAMA_CONTAINER_ID" ollama pull qwen2.5-coder:1.5b
+          docker exec "$OLLAMA_CONTAINER_ID" ollama pull qwen2.5-coder:3b
           docker exec "$OLLAMA_CONTAINER_ID" ollama pull nomic-embed-text
 
       - name: Warm up Ollama models
@@ -254,14 +254,14 @@ jobs:
         # does not race the 300s HTTP timeout in the Rust client.
         run: |
           curl --fail --silent --max-time 300 http://127.0.0.1:11434/api/generate \
-            -d '{"model":"qwen2.5-coder:1.5b","prompt":"hi","stream":false,"keep_alive":"30m"}' >/dev/null
+            -d '{"model":"qwen2.5-coder:3b","prompt":"hi","stream":false,"keep_alive":"30m"}' >/dev/null
           curl --fail --silent --max-time 120 http://127.0.0.1:11434/api/embeddings \
             -d '{"model":"nomic-embed-text","prompt":"hi","keep_alive":"30m"}' >/dev/null
 
       - name: Run desktop Vitest integration suite
         env:
           OLLAMA_BASE_URL: http://127.0.0.1:11434
-          OLLAMA_TEST_CHAT_MODEL: qwen2.5-coder:1.5b
+          OLLAMA_TEST_CHAT_MODEL: qwen2.5-coder:3b
           OLLAMA_TEST_EMBED_MODEL: nomic-embed-text
         run: pnpm --filter @testing-ide/desktop run test:integration
 
@@ -269,7 +269,7 @@ jobs:
         env:
           OLLAMA_INTEGRATION: "1"
           OLLAMA_BASE_URL: http://127.0.0.1:11434
-          OLLAMA_TEST_CHAT_MODEL: qwen2.5-coder:1.5b
+          OLLAMA_TEST_CHAT_MODEL: qwen2.5-coder:3b
           OLLAMA_TEST_EMBED_MODEL: nomic-embed-text
         run: cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml --test integration_ollama -- --nocapture
 
