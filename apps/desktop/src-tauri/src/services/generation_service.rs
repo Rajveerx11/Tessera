@@ -260,17 +260,17 @@ fn extract_raw_json(
     }
     if aggregated.text_len == 0 {
         return Err(AppError::InvalidInput(format!(
-            "model `{}` returned an empty response. Tool calling may not be \
+            "model `{model}` returned an empty response. Tool calling may not be \
              supported by this model — try `qwen2.5-coder:7b`, `qwen2.5:14b`, \
-             or a cloud model like `gpt-4o-mini` / `claude-3-5-sonnet`.",
-            model
+             or a cloud model like `gpt-4o-mini` / `claude-3-5-sonnet`."
         )));
     }
     let preview: String = aggregated.text.chars().take(200).collect();
+    let tool_name = &tool_schema.name;
+    let text_len = aggregated.text_len;
     Err(AppError::InvalidInput(format!(
-        "model `{}` did not invoke `{}` and emitted {} chars of free text \
-         that does not contain a JSON object. Preview: {}",
-        model, tool_schema.name, aggregated.text_len, preview
+        "model `{model}` did not invoke `{tool_name}` and emitted {text_len} chars of free text \
+         that does not contain a JSON object. Preview: {preview}"
     )))
 }
 
