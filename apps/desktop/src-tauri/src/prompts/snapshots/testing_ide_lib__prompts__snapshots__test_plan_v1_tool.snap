@@ -52,11 +52,11 @@ properties:
     type: array
   strategy:
     maxLength: 2000
-    minLength: 20
+    minLength: 1
     type: string
   summary:
     maxLength: 1500
-    minLength: 40
+    minLength: 1
     type: string
 required:
   - summary

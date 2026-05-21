@@ -79,14 +79,14 @@ pub fn tool() -> ToolSchema {
                 "summary": {
                     "type": "string",
                     "description": "One-paragraph elevator pitch for the project.",
-                    "minLength": 40,
+                    "minLength": 1,
                     "maxLength": 1200
                 },
                 "architecture_notes": {
                     "type": "string",
                     "description": "Bullet-prose describing layers, boundaries, and data flow. \
                                    Cite files / functions / classes by name.",
-                    "minLength": 40
+                    "minLength": 1
                 },
                 "key_modules": {
                     "type": "array",

@@ -193,8 +193,9 @@ pub async fn generate(
     // 5. Parse the structured payload.
     let raw_json = extract_raw_json(&aggregated, &tool_schema, &request.model)?;
 
-    let structured_data: JsonValue =
+    let mut structured_data: JsonValue =
         serde_json::from_str(&raw_json).map_err(AppError::Serde)?;
+    normalize_missing_arrays(&mut structured_data, &tool_schema);
     validate_tool_output(&tool_schema, &structured_data)?;
     let input_tokens = aggregated.input_tokens;
     let output_tokens = aggregated.output_tokens;
@@ -546,6 +547,50 @@ fn estimate_prompt_tokens(messages: &[Message]) -> u32 {
         }
     }
     u32::try_from(total).unwrap_or(u32::MAX)
+}
+
+/// Fill missing required array fields with empty arrays.
+///
+/// Small / non-tool-trained LLMs frequently omit object keys whose
+/// value would be an empty array — they interpret "leave the array
+/// empty" as "omit the key". This pre-validation pass walks the
+/// schema's `required` properties, identifies those declared as
+/// `"type": "array"`, and inserts `[]` when the model left them out.
+/// Non-array or already-present fields are never touched.
+pub(crate) fn normalize_missing_arrays(data: &mut JsonValue, tool: &ToolSchema) {
+    let obj = match data.as_object_mut() {
+        Some(o) => o,
+        None => return,
+    };
+    let schema_obj = match tool.parameters_schema.as_object() {
+        Some(o) => o,
+        None => return,
+    };
+    let required = match schema_obj.get("required").and_then(|v| v.as_array()) {
+        Some(r) => r,
+        None => return,
+    };
+    let properties = match schema_obj.get("properties").and_then(|v| v.as_object()) {
+        Some(p) => p,
+        None => return,
+    };
+    for key_val in required {
+        let key = match key_val.as_str() {
+            Some(k) => k,
+            None => continue,
+        };
+        if obj.contains_key(key) {
+            continue;
+        }
+        let is_array = properties
+            .get(key)
+            .and_then(|p| p.get("type"))
+            .and_then(|t| t.as_str())
+            == Some("array");
+        if is_array {
+            obj.insert(key.to_string(), JsonValue::Array(Vec::new()));
+        }
+    }
 }
 
 fn validate_tool_output(tool: &ToolSchema, data: &JsonValue) -> AppResult<()> {
@@ -1112,5 +1157,43 @@ mod tests {
     #[test]
     fn salvage_tool_args_returns_none_for_no_json() {
         assert!(salvage_tool_args("just prose", "emit_test_plan").is_none());
+    }
+
+    #[test]
+    fn normalize_missing_arrays_fills_absent_array_fields() {
+        let schema = test_plan_v1::tool();
+        // Model omitted `objectives` and `environments` entirely.
+        let mut data = serde_json::json!({
+            "summary": "short",
+            "scopeIn": ["auth"],
+            "scopeOut": [],
+            "strategy": "risk-based",
+            "risks": [],
+            "entryCriteria": ["code merged"],
+            "exitCriteria": ["all pass"]
+        });
+        normalize_missing_arrays(&mut data, &schema);
+        assert_eq!(data["objectives"], serde_json::json!([]));
+        assert_eq!(data["environments"], serde_json::json!([]));
+        // Already-present fields remain untouched.
+        assert_eq!(data["scopeIn"], serde_json::json!(["auth"]));
+    }
+
+    #[test]
+    fn normalize_missing_arrays_ignores_non_array_required_fields() {
+        let schema = test_plan_v1::tool();
+        // Omit `summary` (a string, not array) — should NOT be filled.
+        let mut data = serde_json::json!({
+            "objectives": ["verify login"],
+            "scopeIn": ["auth"],
+            "scopeOut": [],
+            "strategy": "risk-based",
+            "environments": [],
+            "risks": [],
+            "entryCriteria": ["code merged"],
+            "exitCriteria": ["all pass"]
+        });
+        normalize_missing_arrays(&mut data, &schema);
+        assert!(data.get("summary").is_none());
     }
 }

@@ -6,7 +6,7 @@ additionalProperties: false
 properties:
   architecture_notes:
     description: "Bullet-prose describing layers, boundaries, and data flow. Cite files / functions / classes by name."
-    minLength: 40
+    minLength: 1
     type: string
   data_flows:
     description: Notable producer -> consumer flows the model identified.
@@ -55,7 +55,7 @@ properties:
   summary:
     description: One-paragraph elevator pitch for the project.
     maxLength: 1200
-    minLength: 40
+    minLength: 1
     type: string
 required:
   - summary

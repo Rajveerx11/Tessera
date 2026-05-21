@@ -20,6 +20,7 @@ use crate::services::ast_service;
 use crate::services::chunking_service::{self, Chunk, ChunkKind};
 use crate::services::file_discovery_service::{self, FileType};
 use crate::services::provider_connection_service::{self, ProviderConnectionTestArgs};
+use crate::services::generation_service::normalize_missing_arrays;
 use crate::utils::crypto::CryptoKey;
 use uuid::Uuid;
 
@@ -370,7 +371,8 @@ mod tests {
 
         let tool_args =
             extract_tool_arguments(&response.content, &tool_schema.name).expect("tool args");
-        let structured_data: JsonValue = serde_json::from_str(&tool_args).expect("structured JSON");
+        let mut structured_data: JsonValue = serde_json::from_str(&tool_args).expect("structured JSON");
+        normalize_missing_arrays(&mut structured_data, &tool_schema);
         validate_tool_output(&tool_schema, &structured_data).expect("tool schema validation");
 
         let output = GoldenProbeOutput {

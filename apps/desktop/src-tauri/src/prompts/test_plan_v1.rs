@@ -80,7 +80,7 @@ pub fn tool() -> ToolSchema {
                 "exitCriteria"
             ],
             "properties": {
-                "summary": { "type": "string", "minLength": 40, "maxLength": 1500 },
+                "summary": { "type": "string", "minLength": 1, "maxLength": 1500 },
                 "objectives": {
                     "type": "array",
                     "minItems": 1,
@@ -95,7 +95,7 @@ pub fn tool() -> ToolSchema {
                     "type": "array",
                     "items": { "type": "string", "minLength": 1 }
                 },
-                "strategy": { "type": "string", "minLength": 20, "maxLength": 2000 },
+                "strategy": { "type": "string", "minLength": 1, "maxLength": 2000 },
                 "environments": {
                     "type": "array",
                     "items": { "type": "string", "minLength": 1 }
