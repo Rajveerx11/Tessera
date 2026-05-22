@@ -2,6 +2,7 @@ import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { useEffect } from 'react';
 
 import { dispatchCommand, isCommandId } from './command-bus';
+import { logToBackend } from './ipc/system';
 
 /**
  * Bridge from the native menu bar to the renderer's command bus.
@@ -26,12 +27,17 @@ export function useAppMenuEvents(): void {
       const id = event.payload;
       if (isCommandId(id)) {
         dispatchCommand(id);
+        return;
       }
-      // Unknown ids are swallowed silently; rules.md §"No console.log
-      // in frontend" forbids browser logging. A future logger IPC
-      // should forward these to the Rust-side tracing subscriber so a
-      // renaming mismatch between menu.rs and command-bus.ts still
-      // surfaces during development.
+      // Forward unknown ids to the Rust tracing subscriber so a rename
+      // mismatch between menu.rs and command-bus.ts surfaces during
+      // development without violating the "no console.log in frontend"
+      // rule.
+      void logToBackend(
+        'warn',
+        'app-menu',
+        `unknown command id from native menu: ${String(id)}`,
+      );
     })
       .then((u) => {
         if (cancelled) {
@@ -40,10 +46,12 @@ export function useAppMenuEvents(): void {
           unlisten = u;
         }
       })
-      .catch(() => {
-        // Listener install failure leaves the menu wired but inert;
-        // see comment above re: future logger IPC. We swallow rather
-        // than throw so React's effect cleanup still runs.
+      .catch((err: unknown) => {
+        // A failure here leaves the native menu wired but inert — every
+        // click silently does nothing. Surface to Rust-side tracing so
+        // the failure is at least visible in logs / Sentry.
+        const message = err instanceof Error ? err.message : String(err);
+        void logToBackend('error', 'app-menu', `listen('app:menu') failed: ${message}`);
       });
 
     return () => {

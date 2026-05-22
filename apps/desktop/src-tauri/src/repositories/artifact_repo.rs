@@ -193,64 +193,60 @@ pub async fn insert(pool: &SqlitePool, row: ArtifactInsert) -> AppResult<String>
     let now = Utc::now().to_rfc3339();
     let structured_text = serde_json::to_string(&row.structured_data)?;
     let metadata_text = serde_json::to_string(&row.generation_metadata)?;
+    let parent = row.parent_id.as_deref();
 
-    // Acquire a single connection and run BEGIN IMMEDIATE so the
-    // version-lookup SELECT and the INSERT share one SQLite write
-    // lock. Without this, two concurrent inserts on the same
-    // parent_id chain race and both assign version = N+1, violating
-    // the (parent_id, version) lineage uniqueness invariant.
-    let mut conn = pool.acquire().await?;
-    sqlx::query("BEGIN IMMEDIATE").execute(&mut *conn).await?;
+    // Single INSERT ... SELECT statement so version computation and the
+    // write happen atomically under SQLite's per-statement write lock —
+    // no explicit transaction, no BEGIN IMMEDIATE, no manual ROLLBACK.
+    // This is cancellation-safe: if the awaiting future is dropped
+    // (e.g. Tauri IPC timeout, window close) the connection returns to
+    // the pool with no lingering transaction state because no
+    // transaction was ever opened.
+    //
+    // The trailing `WHERE ? IS NULL OR EXISTS(...)` guards against the
+    // caller supplying a parent_id that does not exist; SQLite returns
+    // rows_affected = 0 in that case and the caller surface NotFound.
+    let result = sqlx::query(
+        "INSERT INTO artifacts \
+         (id, project_id, artifact_type, title, content_md, structured_data, \
+          generation_metadata, status, version, parent_id, created_at, updated_at) \
+         SELECT ?, ?, ?, ?, ?, ?, ?, 'draft', \
+                CASE WHEN ? IS NULL THEN 1 \
+                     ELSE COALESCE(( \
+                       WITH RECURSIVE chain(id) AS ( \
+                         SELECT id FROM artifacts WHERE id = ? \
+                         UNION \
+                         SELECT a.id FROM artifacts a JOIN chain c ON a.parent_id = c.id \
+                       ) \
+                       SELECT MAX(version) FROM artifacts WHERE id IN (SELECT id FROM chain) \
+                     ), 0) + 1 \
+                END, \
+                ?, ?, ? \
+         FROM (SELECT 1) AS dummy \
+         WHERE ? IS NULL OR EXISTS (SELECT 1 FROM artifacts WHERE id = ?)",
+    )
+    .bind(&id)
+    .bind(&row.project_id)
+    .bind(row.artifact_type.as_str())
+    .bind(&row.title)
+    .bind(&row.content_md)
+    .bind(&structured_text)
+    .bind(&metadata_text)
+    .bind(parent) // CASE WHEN ? IS NULL
+    .bind(parent) // recursive CTE seed
+    .bind(parent) // parent_id column
+    .bind(&now)
+    .bind(&now)
+    .bind(parent) // WHERE outer
+    .bind(parent) // EXISTS check
+    .execute(pool)
+    .await?;
 
-    let inner = async {
-        let next_version = match row.parent_id.as_deref() {
-            Some(parent) => max_version_in_chain(&mut *conn, parent).await? + 1,
-            None => 1,
-        };
-
-        sqlx::query(
-            "INSERT INTO artifacts \
-             (id, project_id, artifact_type, title, content_md, structured_data, \
-              generation_metadata, status, version, parent_id, created_at, updated_at) \
-             VALUES (?, ?, ?, ?, ?, ?, ?, 'draft', ?, ?, ?, ?)",
-        )
-        .bind(&id)
-        .bind(&row.project_id)
-        .bind(row.artifact_type.as_str())
-        .bind(&row.title)
-        .bind(&row.content_md)
-        .bind(&structured_text)
-        .bind(&metadata_text)
-        .bind(next_version)
-        .bind(row.parent_id.as_deref())
-        .bind(&now)
-        .bind(&now)
-        .execute(&mut *conn)
-        .await?;
-
-        Ok::<(), AppError>(())
+    if result.rows_affected() == 0 {
+        let missing = parent.unwrap_or("<unknown>");
+        return Err(AppError::NotFound(format!("artifact {missing}")));
     }
-    .await;
-
-    match inner {
-        Ok(()) => {
-            // If COMMIT itself fails, the BEGIN IMMEDIATE write lock
-            // is still held on this pooled connection. Without an
-            // explicit ROLLBACK the next caller to acquire this
-            // connection would observe an already-open transaction
-            // and either deadlock or see SQLite's "cannot start a
-            // transaction within a transaction" error.
-            if let Err(commit_err) = sqlx::query("COMMIT").execute(&mut *conn).await {
-                let _ = sqlx::query("ROLLBACK").execute(&mut *conn).await;
-                return Err(AppError::Database(commit_err));
-            }
-            Ok(id)
-        }
-        Err(e) => {
-            let _ = sqlx::query("ROLLBACK").execute(&mut *conn).await;
-            Err(e)
-        }
-    }
+    Ok(id)
 }
 
 /// Fetch a single artifact by id, decoding the JSON columns.
@@ -395,37 +391,6 @@ pub async fn list_version_chain(
             })
         })
         .collect()
-}
-
-async fn max_version_in_chain<'e, E>(executor: E, parent_id: &str) -> AppResult<i64>
-where
-    E: sqlx::Executor<'e, Database = sqlx::Sqlite>,
-{
-    // Walk up to the root by following parent_id, then take the max
-    // version across the whole chain. Bounded depth in practice; the
-    // recursive CTE keeps it to one round-trip.
-    let row: (Option<i64>,) = sqlx::query_as(
-        "WITH RECURSIVE chain(id) AS ( \
-             SELECT id FROM artifacts WHERE id = ? \
-             UNION \
-             SELECT a.id FROM artifacts a JOIN chain c ON a.parent_id = c.id \
-         ), \
-         roots AS ( \
-             SELECT id FROM chain UNION SELECT parent_id AS id \
-             FROM artifacts WHERE id IN (SELECT id FROM chain) \
-                AND parent_id IS NOT NULL \
-         ) \
-         SELECT MAX(version) FROM artifacts WHERE id IN (SELECT id FROM roots)",
-    )
-    .bind(parent_id)
-    .fetch_one(executor)
-    .await?;
-    // NULL here means the recursive walk hit no rows — caller passed
-    // a parent_id that does not exist. Surface as NotFound instead of
-    // silently treating the lineage as empty (which would produce a
-    // colliding version=1 on the next insert).
-    row.0
-        .ok_or_else(|| AppError::NotFound(format!("artifact {parent_id}")))
 }
 
 /// Internal row shape for sqlx decoding. Strings stay strings here;
