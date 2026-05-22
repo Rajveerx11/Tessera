@@ -26,11 +26,12 @@ export function useAppMenuEvents(): void {
       const id = event.payload;
       if (isCommandId(id)) {
         dispatchCommand(id);
-      } else {
-        // Unknown id from Rust — log so a renaming mismatch surfaces
-        // during development instead of silently dropping clicks.
-        console.warn(`[app:menu] unknown command id: ${String(id)}`);
       }
+      // Unknown ids are swallowed silently; rules.md §"No console.log
+      // in frontend" forbids browser logging. A future logger IPC
+      // should forward these to the Rust-side tracing subscriber so a
+      // renaming mismatch between menu.rs and command-bus.ts still
+      // surfaces during development.
     })
       .then((u) => {
         if (cancelled) {
@@ -39,8 +40,10 @@ export function useAppMenuEvents(): void {
           unlisten = u;
         }
       })
-      .catch((error: unknown) => {
-        console.warn('[app:menu] failed to install listener:', error);
+      .catch(() => {
+        // Listener install failure leaves the menu wired but inert;
+        // see comment above re: future logger IPC. We swallow rather
+        // than throw so React's effect cleanup still runs.
       });
 
     return () => {
