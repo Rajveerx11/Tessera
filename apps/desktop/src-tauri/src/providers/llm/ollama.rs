@@ -21,11 +21,11 @@ use crate::utils::provider_base_url::normalize_ollama_base_url;
 pub const PROVIDER_NAME: &str = "ollama";
 
 /// Conservative default — long generations against a slow local model
-/// must not be cut off. 5 minutes covers cold-start model loads on
-/// memory-constrained CI runners (GitHub Actions free tier evicts the
-/// previously-loaded model when a second model is loaded, so the next
-/// call pays the full reload cost) plus the actual tool-call response.
-const DEFAULT_TIMEOUT_SECONDS: u64 = 300;
+/// must not be cut off. 10 minutes covers cold-start model loads on
+/// memory-constrained CI runners (GitHub Actions free tier: 2 vCPU,
+/// 7 GB RAM) where a 3B-parameter chat model can take 5+ minutes for
+/// a single tool-call response with 1500+ output tokens.
+const DEFAULT_TIMEOUT_SECONDS: u64 = 600;
 
 /// Ollama provider. Holds an HTTP client and the resolved base URL.
 #[derive(Debug, Clone)]

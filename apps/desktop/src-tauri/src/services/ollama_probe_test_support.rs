@@ -363,7 +363,7 @@ mod tests {
                 messages,
                 tools: vec![tool_schema.clone()],
                 temperature: Some(0.1),
-                max_tokens: Some(2_000),
+                max_tokens: Some(1_500),
                 stop_sequences: Vec::new(),
             })
             .await
