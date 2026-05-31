@@ -6,6 +6,9 @@
 
 **Local-first AI testing IDE — turn any codebase into a full QA dossier without sending source to the cloud.**
 
+**🌐 Live: [tesseraide.vercel.app](https://tesseraide.vercel.app/)**
+
+[![Website](https://img.shields.io/badge/website-tesseraide.vercel.app-000000?logo=vercel&logoColor=white)](https://tesseraide.vercel.app/)
 [![CI](https://github.com/Rajveerx11/Tessera/actions/workflows/ci.yml/badge.svg)](https://github.com/Rajveerx11/Tessera/actions/workflows/ci.yml)
 [![Release](https://github.com/Rajveerx11/Tessera/actions/workflows/release.yml/badge.svg)](https://github.com/Rajveerx11/Tessera/actions/workflows/release.yml)
 [![Tauri 2](https://img.shields.io/badge/Tauri-2.0-24C8DB?logo=tauri)](https://tauri.app/)
