@@ -31,3 +31,6 @@ package-lock.json
 # OS/editor
 .DS_Store
 Thumbs.db
+
+# Marketing website — separate project, kept out of the app repo
+website/
