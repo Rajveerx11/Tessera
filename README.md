@@ -372,8 +372,10 @@ the rest of the team a 1–2 hour cleanup session.
                 ├─ lint
                 ├─ typecheck
                 ├─ unit-test
-                ├─ integration-test (live Ollama)
-                └─ release-build (Tauri matrix)
+                └─ integration-test (live Ollama, non-blocking)
+
+   tag push ─► Release workflow                    (on the runner)
+                └─ Tauri matrix build (Windows + macOS + Linux)
 
    merge ───► branch protection on `master`        (hard server-side gate)
                 ├─ PR required, approval required (CODEOWNERS-routed)

@@ -1,6 +1,6 @@
 [package]
 name = "testing-ide"
-version = "0.1.0"
+version = "0.1.1"
 description = "AI-powered testing IDE — Tauri backend"
 authors = ["Testing IDE Team"]
 edition = "2021"
