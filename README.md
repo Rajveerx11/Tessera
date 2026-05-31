@@ -1,5 +1,7 @@
 <div align="center">
 
+<img src="apps/desktop/public/tessera-logo.png" alt="Tessera Logo" width="180" />
+
 # Tessera
 
 **Local-first AI testing IDE — turn any codebase into a full QA dossier without sending source to the cloud.**
