@@ -16,14 +16,13 @@ permissions:
 
 env:
   NODE_VERSION: "20"
-  PNPM_VERSION: "10.9.0"
 
 jobs:
   conflict-marker-check:
     name: conflict-marker-check
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: Scan for unresolved Git conflict markers
         # Hard-fail when `<<<<<<<`, `=======`, or `>>>>>>>` lines slip into
         # tracked source. Master has been broken three times by merge
@@ -48,7 +47,7 @@ jobs:
     # ~13× the billed minutes for no extra signal.
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Install Linux Tauri deps
         run: |
@@ -64,12 +63,11 @@ jobs:
             wget \
             file
 
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@v6
         with:
-          version: ${{ env.PNPM_VERSION }}
           run_install: false
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: pnpm
@@ -97,14 +95,13 @@ jobs:
     # Ubuntu-only — TypeScript output is identical across runners.
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@v6
         with:
-          version: ${{ env.PNPM_VERSION }}
           run_install: false
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: pnpm
@@ -125,7 +122,7 @@ jobs:
     # every push.
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Install Linux Tauri deps
         run: |
@@ -141,12 +138,11 @@ jobs:
             wget \
             file
 
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@v6
         with:
-          version: ${{ env.PNPM_VERSION }}
           run_install: false
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: pnpm
@@ -192,7 +188,7 @@ jobs:
           OLLAMA_KEEP_ALIVE: "30m"
           OLLAMA_NUM_PARALLEL: "1"
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Install Linux Tauri deps
         run: |
@@ -208,12 +204,11 @@ jobs:
             wget \
             file
 
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@v6
         with:
-          version: ${{ env.PNPM_VERSION }}
           run_install: false
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: pnpm
