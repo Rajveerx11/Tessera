@@ -33,7 +33,7 @@ jobs:
           - { label: windows, runner: windows-latest, args: '' }
     runs-on: ${{ matrix.platform.runner }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Install Linux WebKit deps
         if: matrix.platform.runner == 'ubuntu-latest'
@@ -61,14 +61,13 @@ jobs:
           workspaces: apps/desktop/src-tauri
 
       - name: Install Node 20
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
           node-version: 20
 
       - name: Install pnpm
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@v6
         with:
-          version: 10.9.0
           run_install: false
 
       - name: pnpm install
