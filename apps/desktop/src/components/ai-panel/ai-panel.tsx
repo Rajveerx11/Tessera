@@ -14,6 +14,7 @@ import type { ReactNode } from 'react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { Button } from '@/components/ui/button';
+import { toArtifactSummary } from '@/lib/artifact';
 import { COMMAND, useCommand } from '@/lib/command-bus';
 import {
   artifacts as artifactsIpc,
@@ -23,6 +24,7 @@ import {
   streaming,
 } from '@/lib/ipc';
 import { extractStreamingPreview } from '@/lib/partial-json';
+import { pickActiveProvider } from '@/lib/provider';
 import { useAiStore } from '@/stores/ai-store';
 import { useWorkspaceStore } from '@/stores/workspace-store';
 
@@ -122,8 +124,7 @@ export function AiPanel() {
         const list = await providers.listProviderConfigs();
         if (cancelled) return;
         setProviders(list);
-        const active = list.find((c) => c.isActive) ?? list[0] ?? null;
-        setActiveProvider(active);
+        setActiveProvider(pickActiveProvider(list));
       } catch {
         if (!cancelled) {
           setProviders([]);
@@ -195,19 +196,7 @@ export function AiPanel() {
           // (status, version, parent chain) rather than reconstructing
           // a partial summary in JS.
           const detail = await artifactsIpc.getArtifact(result.artifactId);
-          upsertArtifact({
-            id: detail.id,
-            projectId: detail.projectId,
-            artifactType: detail.artifactType,
-            title: detail.title,
-            status: detail.status,
-            version: detail.version,
-            parentId: detail.parentId ?? null,
-            createdAt: detail.createdAt,
-            updatedAt: detail.updatedAt,
-            provider: detail.provider,
-            model: detail.model,
-          });
+          upsertArtifact(toArtifactSummary(detail));
           setGeneration({ status: 'idle' });
         } catch (err) {
           setGeneration({

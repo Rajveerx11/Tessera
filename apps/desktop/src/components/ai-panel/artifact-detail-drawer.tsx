@@ -9,6 +9,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { MarkdownView } from '@/components/markdown/markdown-view';
 import { Button } from '@/components/ui/button';
 import { Dialog } from '@/components/ui/dialog';
+import { toArtifactSummary } from '@/lib/artifact';
 import { useDialogTitleId } from '@/lib/dialog-title';
 import { exportMarkdownDocument } from '@/lib/export-markdown';
 import { artifacts as artifactsIpc, generation, getErrorMessage } from '@/lib/ipc';
@@ -193,19 +194,7 @@ export function ArtifactDetailDrawer({ summary, onClose }: Props) {
           reviewerFeedback: feedback,
         });
         const fresh = await artifactsIpc.getArtifact(result.artifactId);
-        upsertArtifact({
-          id: fresh.id,
-          projectId: fresh.projectId,
-          artifactType: fresh.artifactType,
-          title: fresh.title,
-          status: fresh.status,
-          version: fresh.version,
-          parentId: fresh.parentId ?? null,
-          createdAt: fresh.createdAt,
-          updatedAt: fresh.updatedAt,
-          provider: fresh.provider,
-          model: fresh.model,
-        });
+        upsertArtifact(toArtifactSummary(fresh));
         // Replace the drawer's view with the fresh version so the user
         // sees the regenerated output immediately.
         setDetail(fresh);

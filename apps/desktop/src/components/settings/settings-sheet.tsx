@@ -10,6 +10,7 @@ import { Dialog } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { useDialogTitleId } from '@/lib/dialog-title';
 import { getErrorMessage, providers } from '@/lib/ipc';
+import { pickActiveProvider } from '@/lib/provider';
 import { useAiStore } from '@/stores/ai-store';
 import { useUiStore } from '@/stores/ui-store';
 
@@ -61,8 +62,7 @@ export function SettingsSheet() {
       try {
         const next = await providers.listProviderConfigs();
         setList(next);
-        const active = next.find((c) => c.isActive) ?? next[0] ?? null;
-        setActiveProvider(active);
+        setActiveProvider(pickActiveProvider(next));
       } catch (err) {
         setError(getErrorMessage(err));
       } finally {
