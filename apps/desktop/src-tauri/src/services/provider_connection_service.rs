@@ -19,9 +19,6 @@ use crate::providers::llm::{anthropic, openai, openrouter};
 use crate::repositories::provider_config_repo;
 use crate::services::provider_config_service;
 use crate::utils::crypto::CryptoKey;
-use crate::utils::provider_base_url::{
-    normalize_ollama_base_url, normalize_openai_compatible_base_url,
-};
 
 const DEFAULT_USER_ID: &str = "00000000-0000-4000-8000-000000000001";
 const DEFAULT_OLLAMA_CLOUD_BASE_URL: &str = "https://ollama.com";
@@ -162,14 +159,14 @@ fn resolve_args(
             if trimmed.is_empty() {
                 default_base_url_for(kind, cfg)
             } else {
-                normalize_base_url(kind, trimmed)
+                provider_config_service::normalize_base_url(kind, trimmed)
             }
         }
         None => stored_config
             .and_then(|config| config.base_url.clone())
             .map_or_else(
                 || default_base_url_for(kind, cfg),
-                |value| normalize_base_url(kind, &value),
+                |value| provider_config_service::normalize_base_url(kind, &value),
             ),
     };
 
@@ -202,7 +199,7 @@ fn default_base_url_for(kind: ProviderKind, cfg: &AppConfig) -> String {
         ProviderKind::Anthropic => anthropic::DEFAULT_BASE_URL.to_string(),
     };
 
-    normalize_base_url(kind, &default_url)
+    provider_config_service::normalize_base_url(kind, &default_url)
 }
 
 fn build_client() -> AppResult<Client> {
@@ -343,15 +340,6 @@ fn build_url(base_url: &str, path: &str) -> String {
         base_url.trim_end_matches('/'),
         path.trim_start_matches('/')
     )
-}
-
-fn normalize_base_url(kind: ProviderKind, raw: &str) -> String {
-    match kind {
-        ProviderKind::Ollama | ProviderKind::OllamaCloud => normalize_ollama_base_url(raw),
-        ProviderKind::OpenAi | ProviderKind::OpenRouter | ProviderKind::Anthropic => {
-            normalize_openai_compatible_base_url(raw)
-        }
-    }
 }
 
 fn truncate_for_message(message: &str) -> String {
@@ -635,15 +623,15 @@ mod tests {
     #[test]
     fn normalize_base_url_strips_api_or_version_suffix() {
         assert_eq!(
-            normalize_base_url(ProviderKind::OllamaCloud, "https://ollama.com/api/"),
+            provider_config_service::normalize_base_url(ProviderKind::OllamaCloud, "https://ollama.com/api/"),
             "https://ollama.com"
         );
         assert_eq!(
-            normalize_base_url(ProviderKind::OllamaCloud, "https://ollama.com/v1/"),
+            provider_config_service::normalize_base_url(ProviderKind::OllamaCloud, "https://ollama.com/v1/"),
             "https://ollama.com"
         );
         assert_eq!(
-            normalize_base_url(ProviderKind::Anthropic, "https://api.anthropic.com/v1/"),
+            provider_config_service::normalize_base_url(ProviderKind::Anthropic, "https://api.anthropic.com/v1/"),
             "https://api.anthropic.com"
         );
     }

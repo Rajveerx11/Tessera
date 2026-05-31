@@ -183,7 +183,12 @@ fn resolve_base_url(
     resolve_optional_string(value, existing).map(|raw| normalize_base_url(kind, &raw))
 }
 
-fn normalize_base_url(kind: ProviderKind, raw: &str) -> String {
+/// Normalize a provider base URL according to its `kind`: Ollama hosts
+/// strip `/api` and `/v1` suffixes, OpenAI-compatible hosts strip `/v1`.
+///
+/// Shared by `provider_connection_service` so the normalization rule has a
+/// single definition across config persistence and connection testing.
+pub(crate) fn normalize_base_url(kind: ProviderKind, raw: &str) -> String {
     match kind {
         ProviderKind::Ollama | ProviderKind::OllamaCloud => normalize_ollama_base_url(raw),
         ProviderKind::OpenAi | ProviderKind::OpenRouter | ProviderKind::Anthropic => {
