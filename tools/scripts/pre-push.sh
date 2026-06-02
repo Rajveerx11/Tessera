@@ -6,8 +6,8 @@
 #   1. conflict-marker scan          (instant)
 #   2. pnpm typecheck                (~10–30s, incremental via Turbo)
 #   3. pnpm lint                     (~10–30s)
-#   4. pnpm test                     (Vitest + Rust unit tests)
-#   5. cargo clippy --all-targets    (only if cargo is installed)
+#   4. frontend + shared unit tests  (Vitest only)
+#   5. cargo clippy + cargo test     (only if cargo is installed)
 #
 # Anything fails → push is refused. Stage 5 is auto-skipped on machines
 # without Rust so non-backend contributors are not blocked, but CI
@@ -48,10 +48,11 @@ step "3/5  pnpm lint"
 pnpm lint || fail "ESLint errors"
 ok   "lint clean"
 
-# 4. Unit tests (Vitest + Rust unit). Skips integration suite — that
-#    requires a live Ollama and is gated in CI.
-step "4/5  pnpm test"
-pnpm test || fail "unit tests failed"
+# 4. Frontend + shared unit tests only. Rust tests stay in step 5 so non-Rust
+#    contributors are not blocked when cargo is unavailable locally.
+step "4/5  frontend unit tests"
+pnpm --filter @testing-ide/shared run test || fail "shared unit tests failed"
+pnpm --filter @testing-ide/desktop run test:frontend || fail "frontend unit tests failed"
 ok   "unit tests passed"
 
 # 5. Rust clippy + unit tests, only if cargo is installed locally.
@@ -64,7 +65,7 @@ if command -v cargo >/dev/null 2>&1; then
   ) || fail "Rust checks failed"
   ok   "Rust checks passed"
 else
-  step "5/5  cargo clippy"
+  step "5/5  skip Rust checks"
   printf "\033[2m  cargo not found — skipping Rust checks (CI will still run them)\033[0m\n"
 fi
 
