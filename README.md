@@ -191,7 +191,7 @@ For a local bundle, run `bash tools/scripts/deploy.sh` (Git Bash on Windows).
 
 ## Contributing
 
-Master is kept **green and linear** — PR-only, squash merge, branch protection. Husky hooks (conflict-marker + large-file guard on commit; typecheck + lint + frontend tests + cargo checks on push) auto-wire on `pnpm install`, and CI still runs the full workspace test suite.
+Master is kept **green and linear** — PR-only, squash merge, branch protection. Husky hooks (conflict-marker + large-file guard on commit; typecheck + lint + shared/frontend tests + cargo checks on push) auto-wire on `pnpm install`, and CI still runs the full workspace test suite.
 
 ```bash
 git checkout -b feat/<short-slug>

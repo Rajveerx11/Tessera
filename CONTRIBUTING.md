@@ -22,7 +22,7 @@ After this, `git commit` and `git push` run the local guards automatically.
 - Open a PR against `master`. Branch protection blocks merge until reviews + checks pass.
 
 `git push` triggers the pre-push gauntlet (`tools/scripts/pre-push.sh`): conflict-marker
-scan → `pnpm typecheck` → `pnpm lint` → desktop frontend tests →
+scan → `pnpm typecheck` → `pnpm lint` → shared + desktop frontend tests →
 `cargo clippy` + `cargo test --lib` (if cargo is installed). CI still runs the full
 workspace `pnpm test`, so Rust stays required on GitHub even when it is skipped locally.
 Run it early with `pnpm guard:pre-push`. Don't bypass with `--no-verify` — branch

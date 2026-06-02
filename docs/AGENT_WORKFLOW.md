@@ -178,7 +178,7 @@ removes the manual click.
 | No files larger than 5 MB committed                        | pre-commit                           |
 | No TypeScript errors                                       | pre-push + CI                        |
 | No ESLint errors                                           | pre-push + CI                        |
-| No failing frontend unit tests locally; no failing Rust unit tests in CI | pre-push + CI          |
+| No failing shared/frontend unit tests locally; no failing Rust unit tests in CI | pre-push + CI          |
 | No `clippy::pedantic` warnings (Rust)                      | CI (`-D warnings`)                   |
 | No `.env` / secrets / API keys committed                   | reviewer + manual scan               |
 | No new IPC command without a Zod schema in `packages/shared/` | reviewer (rules.md §12.3.1)         |
