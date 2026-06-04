@@ -1,5 +1,6 @@
 import { open as openDialog } from '@tauri-apps/plugin-dialog';
 import { readDir, readTextFile, stat, watch as tauriWatch } from '@tauri-apps/plugin-fs';
+import type { UnwatchFn, WatchEvent } from '@tauri-apps/plugin-fs';
 
 import type { FsEntry } from '@/stores/workspace-store';
 
@@ -233,9 +234,9 @@ function formatBytes(bytes: number): string {
  */
 export async function watchDirectory(
   path: string,
-  cb: (event: any) => void,
+  cb: (event: WatchEvent) => void,
   options?: { recursive?: boolean; delayMs?: number },
-): Promise<() => void> {
+): Promise<UnwatchFn> {
   try {
     return await tauriWatch(path, cb, options);
   } catch (err) {

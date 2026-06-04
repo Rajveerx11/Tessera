@@ -27,9 +27,12 @@ export function FileExplorer() {
   const [size, setSize] = useState({ width: 280, height: 400 });
   const [loadingFolders, setLoadingFolders] = useState<Set<string>>(new Set());
 
+  const projectId = project?.id;
+  const projectRootPath = project?.rootPath;
+
   // Setup directory watch subscription when active project changes
   useEffect(() => {
-    if (project === null) return;
+    if (projectRootPath === undefined) return;
 
     let active = true;
     let stopWatching: (() => void) | null = null;
@@ -37,7 +40,7 @@ export function FileExplorer() {
     void (async () => {
       try {
         const unwatch = await filesystem.watchDirectory(
-          project.rootPath,
+          projectRootPath,
           () => {
             if (!active) return;
             void refreshTree();
@@ -64,7 +67,7 @@ export function FileExplorer() {
         stopWatching();
       }
     };
-  }, [project?.id, project?.rootPath, refreshTree]);
+  }, [projectId, projectRootPath, refreshTree]);
 
   useEffect(() => {
     const node = containerRef.current;
