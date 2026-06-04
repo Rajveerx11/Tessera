@@ -51,7 +51,10 @@ pnpm --filter @testing-ide/desktop run test:e2e
 cargo clippy --manifest-path apps/desktop/src-tauri/Cargo.toml --locked --all-targets --lib -- -D warnings
 
 # Pre-push local CI gauntlet (typecheck → lint → test → clippy)
-bash tools/scripts/pre-push.sh
+pnpm guard:pre-push
+
+# Quick conflict-marker scan only
+pnpm guard:markers
 ```
 
 ## Architecture
@@ -89,6 +92,21 @@ utils/      Pure functions (crypto, telemetry, path helpers)
 
 `generation_service.rs` is the sole entry point for LLM calls (per §4.2 + §12.1). Flow: embed scope hint → RAG via `chunk_repo::search_similar` → `build_prompt` → token budget check → `LlmProvider::stream` → JSON-Schema validate tool output → `artifact_repo::insert`.
 
+### Tauri IPC gotchas (rules.md §4.2.1)
+
+- `#[tauri::command]` requires **owned argument types** (`String`, not `&str`). This trips `clippy::needless_pass_by_value` — silence it at the command function with a comment, never globally.
+- Commands return `Result<T, String>` (Tauri serializes the error variant). Map domain errors with `.map_err(|e| e.to_string())` at the boundary; keep typed `AppError` everywhere inside.
+- `app.manage(...)` / `handle.path()` require `use tauri::Manager;` — forgetting it is a silent rust-analyzer suggestion that fails to compile.
+
+### FE/BE schema sync (rules.md §12.3.1)
+
+Rust serde is the source of truth. TS Zod schemas in `packages/shared/` mirror it — they never drive it.
+
+- `#[serde(rename = "ollama")]` → `z.literal('ollama')` — discriminator strings must match exactly.
+- `Option<T>` → `.optional()` in Zod; encode Rust refinements as `.refine(...)`.
+- When a Rust enum gains or drops a variant, update the Zod schema and all covering tests in the **same PR**.
+- New schemas go in `packages/shared/src/schemas/` with a round-trip contract test.
+
 ### Provider abstraction
 
 `LlmProvider` and `EmbeddingProvider` are async traits. Implementations live under `providers/llm/` (ollama, openai, anthropic, openrouter, openai_compat) and `providers/embeddings/`. `providers/factory.rs` selects implementation at runtime from `provider_config_repo`. Never call provider code directly outside `generation_service`.
@@ -100,6 +118,13 @@ Zustand stores in `src/stores/`. Tauri IPC calls go through typed wrappers in `s
 ### Shared types
 
 `packages/shared/` is the single source of truth for types crossing the IPC boundary. Add Zod schemas there first; TS types are inferred from them.
+
+## Branching
+
+`<type>/<short-slug>` — kebab-case, ≤ 40 chars. Types: `feat`, `fix`, `refactor`, `perf`, `docs`, `chore`, `test`.
+Examples: `feat/streaming-preview`, `fix/ollama-404-hint`, `chore/upgrade-tauri-2.6`.
+
+Husky wires automatically on `pnpm install`: `git commit` runs conflict-marker + large-file (> 5 MB) check; `git push` runs the full gauntlet.
 
 ## Key Rules (from rules/rules.md)
 
