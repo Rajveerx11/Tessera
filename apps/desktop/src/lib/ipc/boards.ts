@@ -137,8 +137,8 @@ function mapSprint(dbSprint: any): Sprint {
     boardId: dbSprint.board_id,
     name: dbSprint.name,
     goal: dbSprint.goal || '',
-    startDate: dbSprint.start_date || '',
-    endDate: dbSprint.end_date || '',
+    startDate: dbSprint.start_date || undefined,
+    endDate: dbSprint.end_date || undefined,
     status: dbSprint.status,
     createdAt: dbSprint.created_at,
   };
