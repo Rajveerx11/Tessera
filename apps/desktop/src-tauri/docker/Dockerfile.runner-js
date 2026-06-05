@@ -15,11 +15,12 @@
 # (`--network none`, `--cap-drop ALL`, `--read-only`, `--pids-limit`,
 # `--ulimit fsize`, `--security-opt no-new-privileges`, cpu/memory caps).
 #
-# SECURITY: pin the base image by digest before distributing this image.
-# Resolve the current digest with:
+# SECURITY: the base image is pinned by digest (multi-arch manifest list) so
+# rebuilds are reproducible and a registry push can't silently change the
+# Node.js version or layers. To bump, resolve the new digest with:
 #   docker pull node:20-alpine && docker inspect --format='{{index .RepoDigests 0}}' node:20-alpine
-# then replace the tag below with `node:20-alpine@sha256:<digest>`.
-FROM node:20-alpine
+# and update the line below deliberately.
+FROM node:20-alpine@sha256:fb4cd12c85ee03686f6af5362a0b0d56d50c58a04632e6c0fb8363f609372293
 
 # Coverage provider must match `vitest.config` (provider: 'istanbul').
 # Pinned to exact versions for reproducible image builds: a floating `^2`
