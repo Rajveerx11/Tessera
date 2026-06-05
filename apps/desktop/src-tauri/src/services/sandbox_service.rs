@@ -163,12 +163,17 @@ pub async fn run(request: RunRequest, deps: &SandboxDeps<'_>) -> AppResult<RunRe
     test_run_repo::mark_running(deps.pool, &run_id).await?;
 
     // 5. Drive the runner. The cancellation token is registered under the
-    //    run id so a concurrent `cancel_test_sandbox` can fire it; the
-    //    `RegistryGuard` removes it on every exit path. The runner's own
-    //    wall-clock timeout is independent of this user-Stop token.
+    //    caller's `client_run_id` (known to the UI before this IPC returns)
+    //    so a concurrent `cancel_test_sandbox` can fire it; the
+    //    `RegistryGuard` removes it on every exit path. A run with no
+    //    client id is simply not cancellable. The runner's own wall-clock
+    //    timeout is independent of this user-Stop token.
     let cancel = CancelToken::new();
-    deps.registry.register(&run_id, cancel.clone());
-    let _guard = RegistryGuard { registry: deps.registry, run_id: &run_id };
+    let cancel_key = request.client_run_id.trim().to_string();
+    if !cancel_key.is_empty() {
+        deps.registry.register(&cancel_key, cancel.clone());
+    }
+    let _guard = RegistryGuard { registry: deps.registry, run_id: &cancel_key };
 
     tracing::debug!("driving runner");
     let started = Instant::now();
@@ -478,6 +483,7 @@ mod tests {
             RunRequest {
                 artifact_id: artifact_id.clone(),
                 opt_in_confirmed: true,
+                client_run_id: String::new(),
             },
             &deps,
         )
@@ -510,6 +516,7 @@ mod tests {
             RunRequest {
                 artifact_id,
                 opt_in_confirmed: false,
+                client_run_id: String::new(),
             },
             &deps,
         )
@@ -535,6 +542,7 @@ mod tests {
             RunRequest {
                 artifact_id,
                 opt_in_confirmed: true,
+                client_run_id: String::new(),
             },
             &deps,
         )
@@ -561,6 +569,7 @@ mod tests {
             RunRequest {
                 artifact_id,
                 opt_in_confirmed: true,
+                client_run_id: String::new(),
             },
             &deps,
         )
@@ -624,6 +633,7 @@ mod tests {
             RunRequest {
                 artifact_id,
                 opt_in_confirmed: true,
+                client_run_id: String::new(),
             },
             &deps,
         )
@@ -652,5 +662,65 @@ mod tests {
         // After the run deregisters, a late Stop is a no-op.
         registry.unregister("run-1");
         assert!(!request_cancel(&registry, "run-1"));
+    }
+
+    /// Runner that blocks until its cancel token fires, then reports the
+    /// run cancelled — models a long Docker run a user Stops.
+    struct BlockingRunner;
+
+    #[async_trait]
+    impl TestRunner for BlockingRunner {
+        fn name(&self) -> &'static str {
+            "blocking-runner"
+        }
+        async fn run(
+            &self,
+            input: RunInput,
+            cancel: CancelToken,
+        ) -> Result<RunnerOutput, RunnerError> {
+            input.validate().expect("service must pass a valid RunInput");
+            cancel.cancelled().await;
+            Err(RunnerError::Cancelled)
+        }
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn run_is_cancellable_mid_flight_via_client_run_id() {
+        let (pool, path) = open_pool().await;
+        let artifact_id = seed_artifact(&pool, ArtifactType::TestCases).await;
+        let registry = RunRegistry::new();
+        let runner: Arc<dyn TestRunner> = Arc::new(BlockingRunner);
+
+        // Drive the (blocking) run on a task; it shares the registry so a
+        // concurrent Stop reaches the same cancel token.
+        let reg = registry.clone();
+        let pool_for_run = pool.clone();
+        let aid = artifact_id.clone();
+        let handle = tokio::spawn(async move {
+            let deps = SandboxDeps { pool: &pool_for_run, runner, registry: &reg };
+            run(
+                RunRequest {
+                    artifact_id: aid,
+                    opt_in_confirmed: true,
+                    client_run_id: "client-xyz".into(),
+                },
+                &deps,
+            )
+            .await
+        });
+
+        // Spin until the run has registered its token, then Stop it.
+        loop {
+            if request_cancel(&registry, "client-xyz") {
+                break;
+            }
+            tokio::task::yield_now().await;
+        }
+
+        let result = handle.await.expect("join").expect("run returns a result");
+        assert_eq!(result.status, RunStatus::Cancelled);
+
+        pool.close().await;
+        let _ = std::fs::remove_file(&path);
     }
 }

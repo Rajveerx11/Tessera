@@ -120,6 +120,12 @@ impl TestStatus {
 pub struct RunRequest {
     pub artifact_id: String,
     pub opt_in_confirmed: bool,
+    /// Caller-generated correlation id (UUID) the run registers its cancel
+    /// token under, so the UI can Stop a run it has not yet seen the result
+    /// of (the run IPC only returns once the run finishes). Defaults to
+    /// empty when absent — such a run is simply not cancellable.
+    #[serde(default)]
+    pub client_run_id: String,
 }
 
 /// One executed test assertion. Mirrors `TestResultSchema`.
@@ -507,11 +513,19 @@ mod tests {
 
     #[test]
     fn run_request_deserializes_camel_case_wire_keys() {
+        // clientRunId is optional on the wire (defaults to empty).
         let req: RunRequest =
             serde_json::from_str(r#"{"artifactId":"a1","optInConfirmed":true}"#)
                 .expect("deserialize request");
         assert_eq!(req.artifact_id, "a1");
         assert!(req.opt_in_confirmed);
+        assert!(req.client_run_id.is_empty());
+
+        let with_id: RunRequest = serde_json::from_str(
+            r#"{"artifactId":"a1","optInConfirmed":true,"clientRunId":"run-9"}"#,
+        )
+        .expect("deserialize request with id");
+        assert_eq!(with_id.client_run_id, "run-9");
     }
 
     #[test]

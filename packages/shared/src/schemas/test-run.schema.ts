@@ -46,6 +46,13 @@ export type TestStatus = z.infer<typeof TestStatusSchema>;
 export const RunRequestSchema = z.object({
   artifactId: z.string().uuid(),
   optInConfirmed: z.boolean(),
+  /**
+   * Caller-generated correlation id (UUID) the backend registers the run's
+   * cancel token under, so the UI can Stop a run before the run IPC returns.
+   * Optional on the wire (the Rust struct defaults it to empty); the UI
+   * always supplies one so its Stop button can target the run.
+   */
+  clientRunId: z.string().uuid().optional(),
 });
 
 export type RunRequest = z.infer<typeof RunRequestSchema>;

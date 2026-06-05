@@ -548,6 +548,15 @@ describe('RunRequestSchema', () => {
   it('rejects a non-uuid artifactId', () => {
     expect(() => RunRequestSchema.parse({ artifactId: 'nope', optInConfirmed: true })).toThrow();
   });
+
+  it('carries an optional clientRunId for the Stop path', () => {
+    const parsed = RunRequestSchema.parse({
+      artifactId: '123e4567-e89b-12d3-a456-426614174000',
+      optInConfirmed: true,
+      clientRunId: '8a3e4567-e89b-12d3-a456-426614174999',
+    });
+    expect(parsed.clientRunId).toBe('8a3e4567-e89b-12d3-a456-426614174999');
+  });
 });
 
 describe('TestResultSchema', () => {
