@@ -20,6 +20,7 @@ const PROVIDER_OPTIONS = [
   { id: 'openai', label: 'OpenAI', requiresKey: true },
   { id: 'openrouter', label: 'OpenRouter', requiresKey: true },
   { id: 'anthropic', label: 'Anthropic', requiresKey: true },
+  { id: 'gemini', label: 'Google Gemini', requiresKey: true },
 ] as const;
 
 type ProviderOption = (typeof PROVIDER_OPTIONS)[number];

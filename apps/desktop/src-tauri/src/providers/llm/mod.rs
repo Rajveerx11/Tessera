@@ -13,6 +13,7 @@
 //! - [`openai`] — `OpenAI` cloud chat completions.
 //! - [`openrouter`] — OpenAI-compatible aggregator.
 //! - [`anthropic`] — Anthropic `/v1/messages` (different request shape).
+//! - [`gemini`] — Google Gemini via its OpenAI-compatible surface.
 //!
 //! Streaming uses `Pin<Box<dyn Stream<Item = Result<Chunk, LlmError>> + Send>>`
 //! so trait objects (`Arc<dyn LlmProvider>`) work through the factory.
@@ -27,6 +28,7 @@ pub mod openai_compat;
 pub mod types;
 
 pub mod anthropic;
+pub mod gemini;
 pub mod ollama;
 pub mod openai;
 pub mod openrouter;
@@ -42,11 +44,12 @@ pub use types::{
 pub type ChunkStream = Pin<Box<dyn Stream<Item = Result<Chunk, LlmError>> + Send>>;
 
 /// Provider-agnostic LLM interface. All concrete providers (Ollama,
-/// `OpenAI`, `OpenRouter`, Anthropic) implement this trait.
+/// `OpenAI`, `OpenRouter`, Anthropic, Gemini) implement this trait.
 #[async_trait]
 pub trait LlmProvider: Send + Sync {
     /// Stable identifier used in logs and `LlmError::provider`. Lowercase
-    /// snake-case (`ollama`, `openai`, `openrouter`, `anthropic`).
+    /// snake-case (`ollama`, `openai`, `openrouter`, `anthropic`,
+    /// `gemini`).
     fn name(&self) -> &'static str;
 
     /// Capabilities of the active model / provider combination.

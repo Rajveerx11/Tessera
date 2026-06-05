@@ -18,6 +18,7 @@ export const LlmProviderIdSchema = z.union([
   z.literal('openai'),
   z.literal('openrouter'),
   z.literal('anthropic'),
+  z.literal('gemini'),
 ]);
 
 export type LlmProvider = z.infer<typeof LlmProviderIdSchema>;

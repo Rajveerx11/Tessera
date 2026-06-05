@@ -13,6 +13,7 @@ describe('LlmProviderIdSchema', () => {
       'openai',
       'openrouter',
       'anthropic',
+      'gemini',
     ];
     for (const provider of valid) {
       expect(LlmProviderIdSchema.parse(provider)).toBe(provider);
