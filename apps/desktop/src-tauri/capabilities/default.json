@@ -7,10 +7,44 @@
     "core:default",
     "dialog:default",
     "dialog:allow-open",
+    "dialog:allow-save",
     "fs:default",
-    "fs:allow-read-text-file",
-    "fs:allow-read-dir",
-    "fs:allow-stat",
+    "fs:allow-write-text-file",
+    {
+      "identifier": "fs:allow-read-text-file",
+      "allow": [
+        { "path": "**" },
+        { "path": "**/*" }
+      ]
+    },
+    {
+      "identifier": "fs:allow-read-dir",
+      "allow": [
+        { "path": "**" },
+        { "path": "**/*" }
+      ]
+    },
+    {
+      "identifier": "fs:allow-stat",
+      "allow": [
+        { "path": "**" },
+        { "path": "**/*" }
+      ]
+    },
+    {
+      "identifier": "fs:allow-watch",
+      "allow": [
+        { "path": "**" },
+        { "path": "**/*" }
+      ]
+    },
+    {
+      "identifier": "fs:allow-unwatch",
+      "allow": [
+        { "path": "**" },
+        { "path": "**/*" }
+      ]
+    },
     {
       "identifier": "fs:scope",
       "allow": [

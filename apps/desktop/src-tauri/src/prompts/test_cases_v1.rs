@@ -28,6 +28,8 @@ Rules:
 - Steps are imperative and ordered. Expected results are observable, not \
   internal state assertions the test runner cannot reach.
 - Priority must follow impact * likelihood, not test difficulty.
+- Test case IDs must strictly match the regex `^TC-[A-Z0-9_-]+$` (all-caps, \
+  e.g., `TC-LOGIN-SUCCESS`, NOT `TC-Login-Success` or `TC-Login`).
 - Also emit a `files` array that makes the cases runnable in the local \
   sandbox: the minimal source-under-test file(s), reproduced from the \
   supplied chunks and marked `isTest: false`, plus one vitest spec per \
@@ -37,7 +39,22 @@ Rules:
   path or a `..` segment. Omit `files` only when the scope has no \
   executable behavior (e.g. pure type declarations).
 - Always invoke the `emit_test_cases` tool with the structured payload. \
-  Never reply with free-form prose.";
+  Never reply with free-form prose.
+
+The structured payload MUST have the following JSON structure:
+{
+  \"cases\": [
+    {
+      \"id\": \"TC-UNIQUE-ID\",
+      \"title\": \"Short descriptive title\",
+      \"preconditions\": [\"Precondition 1\"],
+      \"steps\": [\"Step 1\", \"Step 2\"],
+      \"expectedResult\": \"Expected result\",
+      \"priority\": \"p0 | p1 | p2 | p3\",
+      \"traceability\": [\"path/to/file.ext#symbol\"]
+    }
+  ]
+}";
 
 #[must_use]
 pub fn build_messages(ctx: &PromptContext<'_>) -> Vec<Message> {
@@ -62,10 +79,27 @@ pub fn build_messages(ctx: &PromptContext<'_>) -> Vec<Message> {
 
     user_body.push_str("## Code to cover\n\n");
     user_body.push_str(&ctx.render_chunks());
-    user_body.push_str(
-        "\n\nNow invoke `emit_test_cases` with the structured cases and a \
-         runnable `files` array (source-under-test + vitest specs).",
-    );
+    user_body.push_str("\n\n[CRITICAL INSTRUCTION] You MUST now invoke the `emit_test_cases` tool with the structured cases.\n\
+    The JSON payload MUST use ONLY these top-level keys: `cases` (required) and `files` (optional — the runnable workspace):\n\
+    {\n\
+      \"cases\": [\n\
+        {\n\
+          \"id\": \"TC-UNIQUE-ID\",\n\
+          \"title\": \"Short descriptive title\",\n\
+          \"preconditions\": [\"Precondition 1\"],\n\
+          \"steps\": [\"Step 1\", \"Step 2\"],\n\
+          \"expectedResult\": \"Expected result\",\n\
+          \"priority\": \"p0 | p1 | p2 | p3\",\n\
+          \"traceability\": [\"path/to/file.ext#symbol\"]\n\
+        }\n\
+      ],\n\
+      \"files\": [\n\
+        { \"path\": \"src/add.ts\", \"contents\": \"...\", \"isTest\": false },\n\
+        { \"path\": \"add.test.ts\", \"contents\": \"...\", \"isTest\": true }\n\
+      ]\n\
+    }\n\
+    Include `files` so the cases run in the local sandbox: the minimal source-under-test (marked isTest:false) plus one vitest spec per source file (marked isTest:true), using workspace-relative paths only (no absolute paths, no `..`). Omit `files` only when the scope has no executable behavior.\n\
+    Do NOT output fields from the codebase (like architect, location, timeline, bhk_display, category, etc.) at the top level. You MUST use only the keys listed above. Do NOT reply with free-form prose, apologies, or explanations. You MUST invoke the tool.");
 
     vec![system_text(SYSTEM_INSTRUCTIONS), user_text(user_body)]
 }
@@ -98,7 +132,7 @@ pub fn tool() -> ToolSchema {
                             "id": {
                                 "type": "string",
                                 "pattern": "^TC-[A-Z0-9_-]+$",
-                                "description": "Stable id, prefix `TC-`."
+                                "description": "Stable id, prefix `TC-`. MUST use ONLY uppercase letters, digits, hyphens, and underscores (e.g. 'TC-TEST-CARD-FOOTER' in all-caps, NOT 'TC-TEST-CARD-Footer')."
                             },
                             "title": { "type": "string", "minLength": 5, "maxLength": 200 },
                             "priority": { "type": "string", "enum": priority_enum },

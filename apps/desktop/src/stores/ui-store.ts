@@ -65,7 +65,7 @@ function persist(state: Pick<UiState, 'panelSizes' | 'sandboxOptIn'>): void {
   }
 }
 
-export const useUiStore = create<UiState>()((set, get) => {
+const store = create<UiState>()((set, get) => {
   const initial = loadInitial();
   return {
     ...initial,
@@ -80,3 +80,14 @@ export const useUiStore = create<UiState>()((set, get) => {
     },
   };
 });
+
+const globalStore = globalThis as unknown as {
+  useUiStore?: typeof store;
+};
+
+export const useUiStore = globalStore.useUiStore || store;
+
+if (process.env.NODE_ENV !== 'production') {
+  globalStore.useUiStore = useUiStore;
+}
+
