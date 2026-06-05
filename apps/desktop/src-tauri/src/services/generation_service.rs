@@ -323,10 +323,7 @@ fn detect_non_tool_call_format(text: &str) -> Option<&'static str> {
         Some("`<tool_call>` tags")
     } else if lower.contains("<function_call") || lower.contains("<|python_tag|>") {
         Some("Llama function-call tags")
-    } else if lower.contains("default_api.")
-        || lower.contains("console.log(default_api.")
-        || lower.contains("print(default_api.")
-    {
+    } else if lower.contains("default_api.") {
         Some("a code snippet")
     } else {
         None
@@ -942,7 +939,10 @@ fn normalize_js_strings(raw: &str) -> String {
     for ch in raw.chars() {
         if let Some(quote) = in_string {
             if escaped {
-                if quote == '\'' && ch == quote {
+                // `\'` is valid in JS strings (single- or double-quoted)
+                // but not in JSON; pop the `\` we already wrote and emit
+                // the quote bare.
+                if ch == '\'' {
                     out.pop();
                 }
                 out.push(ch);
@@ -1937,6 +1937,24 @@ mod tests {
         normalize_missing_arrays(&mut parsed, &test_plan_v1::tool());
         validate_tool_output(&test_plan_v1::tool(), &parsed).expect("valid test plan");
         assert_eq!(parsed["summary"], "It's a plan with a } brace in prose");
+    }
+
+    #[test]
+    fn salvage_tool_args_recovers_escaped_apostrophe_in_double_quoted_strings() {
+        // `\'` is a legal (if unnecessary) escape in double-quoted JS
+        // strings but invalid JSON — the normalizer must drop the backslash.
+        let text = r#"<tool_code>
+            console.log(default_api.emit_test_plan({
+                summary: "It\'s a plan",
+                strategy: "Verify parser resilience",
+            }))
+        </tool_code>"#;
+
+        let got = salvage_tool_args(text, "emit_test_plan").expect("salvage");
+        let mut parsed: serde_json::Value = serde_json::from_str(&got).unwrap();
+        normalize_missing_arrays(&mut parsed, &test_plan_v1::tool());
+        validate_tool_output(&test_plan_v1::tool(), &parsed).expect("valid test plan");
+        assert_eq!(parsed["summary"], "It's a plan");
     }
 
     #[test]
