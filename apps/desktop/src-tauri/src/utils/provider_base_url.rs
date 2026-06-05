@@ -25,6 +25,17 @@ pub fn normalize_openai_compatible_base_url(raw: &str) -> String {
     strip_known_suffixes(raw, &["/v1"])
 }
 
+/// Normalize a Google Gemini base URL down to the host/root path.
+///
+/// The provider appends `/v1beta/openai/...` itself, so user inputs
+/// copied from the docs — `https://generativelanguage.googleapis.com/v1beta/openai/`
+/// or `.../v1beta/` — must converge to the bare host. Strips
+/// `/openai`, `/v1beta`, and `/v1` suffixes repeatedly.
+#[must_use]
+pub fn normalize_gemini_base_url(raw: &str) -> String {
+    strip_known_suffixes(raw, &["/openai", "/v1beta", "/v1"])
+}
+
 fn strip_known_suffixes(raw: &str, suffixes: &[&str]) -> String {
     let mut current = raw.trim().trim_end_matches('/').to_string();
 
@@ -67,6 +78,24 @@ mod tests {
         assert_eq!(
             normalize_ollama_base_url("https://ollama.com/api/v1/"),
             "https://ollama.com"
+        );
+    }
+
+    #[test]
+    fn normalize_gemini_base_url_strips_compat_path_segments() {
+        assert_eq!(
+            normalize_gemini_base_url(
+                "https://generativelanguage.googleapis.com/v1beta/openai/"
+            ),
+            "https://generativelanguage.googleapis.com"
+        );
+        assert_eq!(
+            normalize_gemini_base_url("https://generativelanguage.googleapis.com/v1beta"),
+            "https://generativelanguage.googleapis.com"
+        );
+        assert_eq!(
+            normalize_gemini_base_url("https://generativelanguage.googleapis.com"),
+            "https://generativelanguage.googleapis.com"
         );
     }
 

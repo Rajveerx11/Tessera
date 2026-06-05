@@ -29,6 +29,7 @@ const PROVIDER_OPTIONS: ReadonlyArray<{ value: LlmProvider; label: string }> = [
   { value: 'openai', label: 'OpenAI' },
   { value: 'openrouter', label: 'OpenRouter' },
   { value: 'anthropic', label: 'Anthropic' },
+  { value: 'gemini', label: 'Google Gemini' },
 ];
 
 const EMPTY_FORM_STATE: ProviderFormState = {

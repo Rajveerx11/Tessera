@@ -179,7 +179,7 @@ function StepOne() {
       </p>
       <ul className="mt-4 space-y-2 text-sm">
         <Bullet>Runs offline by default via Ollama.</Bullet>
-        <Bullet>Bring your own OpenAI / Anthropic / OpenRouter key for cloud models.</Bullet>
+        <Bullet>Bring your own OpenAI / Anthropic / Gemini / OpenRouter key for cloud models.</Bullet>
         <Bullet>API keys stored encrypted at rest (AES-GCM); never logged.</Bullet>
       </ul>
     </Section>

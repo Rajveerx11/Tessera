@@ -72,7 +72,7 @@ Opt-in, off by default. With the sandbox enabled in settings and Docker present,
 │            ├─▶ Tree-sitter (JS / TS / Python)                  │
 │            ├─▶ Ollama embeddings (nomic-embed-text)            │
 │            ├─▶ LLM provider trait (Ollama / OpenAI /           │
-│            │                       OpenRouter / Anthropic)     │
+│            │             OpenRouter / Anthropic / Gemini)      │
 │            └─▶ TestRunner trait (opt-in Docker sandbox, JS/TS) │
 └────────────────────────────────────────────────────────────────┘
 ```
@@ -99,6 +99,7 @@ Layered backend (see [`rules/rules.md`](./rules/rules.md) §4.2): **commands** a
 | OpenAI | API key | ❌ | Custom base URL (Azure / proxies) |
 | OpenRouter | API key | ❌ | Gateway to many models |
 | Anthropic | API key | ❌ | Claude family |
+| Google Gemini | API key | ❌ | Google AI Studio key; OpenAI-compatible endpoint |
 
 Embeddings are pluggable; the default `nomic-embed-text` (768-dim, Apache-2.0) ships with Ollama.
 

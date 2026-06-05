@@ -13,6 +13,7 @@ use serde::{Deserialize, Serialize};
 use super::embeddings::{EmbeddingProvider, OllamaEmbeddingProvider};
 use super::llm::anthropic::AnthropicProvider;
 use super::llm::error::LlmError;
+use super::llm::gemini::GeminiProvider;
 use super::llm::ollama::OllamaProvider;
 use super::llm::openai::OpenAiProvider;
 use super::llm::openrouter::OpenRouterProvider;
@@ -40,6 +41,8 @@ pub enum ProviderKind {
     OpenRouter,
     #[serde(rename = "anthropic")]
     Anthropic,
+    #[serde(rename = "gemini")]
+    Gemini,
 }
 
 impl ProviderKind {
@@ -53,6 +56,7 @@ impl ProviderKind {
             Self::OpenAi => "openai",
             Self::OpenRouter => "openrouter",
             Self::Anthropic => "anthropic",
+            Self::Gemini => "gemini",
         }
     }
 
@@ -69,6 +73,7 @@ impl ProviderKind {
             "openai" => Ok(Self::OpenAi),
             "openrouter" => Ok(Self::OpenRouter),
             "anthropic" => Ok(Self::Anthropic),
+            "gemini" => Ok(Self::Gemini),
             _ => Err(AppError::InvalidInput(format!(
                 "unknown provider kind `{value}`"
             ))),
@@ -162,6 +167,18 @@ pub fn build_llm_provider(config: &ProviderConfig) -> Result<Arc<dyn LlmProvider
             };
             Ok(Arc::new(provider))
         }
+        ProviderKind::Gemini => {
+            let key = config
+                .api_key
+                .as_deref()
+                .ok_or_else(missing_api_key(ProviderKind::Gemini))?;
+            let provider = if let Some(base) = config.base_url.as_deref() {
+                GeminiProvider::with_base_url(key, base)?
+            } else {
+                GeminiProvider::new(key)?
+            };
+            Ok(Arc::new(provider))
+        }
     }
 }
 
@@ -197,6 +214,7 @@ fn provider_name_for(kind: ProviderKind) -> &'static str {
         ProviderKind::OpenAi => "openai",
         ProviderKind::OpenRouter => "openrouter",
         ProviderKind::Anthropic => "anthropic",
+        ProviderKind::Gemini => "gemini",
     }
 }
 
@@ -229,6 +247,7 @@ mod tests {
             (ProviderKind::OpenAi, "\"openai\""),
             (ProviderKind::OpenRouter, "\"openrouter\""),
             (ProviderKind::Anthropic, "\"anthropic\""),
+            (ProviderKind::Gemini, "\"gemini\""),
         ];
         for (kind, expected) in cases {
             let json = serde_json::to_string(&kind).expect("serialize");
@@ -245,6 +264,7 @@ mod tests {
         assert!(ProviderKind::OpenAi.requires_api_key());
         assert!(ProviderKind::OpenRouter.requires_api_key());
         assert!(ProviderKind::Anthropic.requires_api_key());
+        assert!(ProviderKind::Gemini.requires_api_key());
     }
 
     #[test]
@@ -295,6 +315,31 @@ mod tests {
         let err = build_llm_provider(&cfg).err().expect("must reject");
         assert_eq!(err.code(), "LLM_AUTH_FAILED");
         assert_eq!(err.provider(), "anthropic");
+    }
+
+    #[test]
+    fn build_llm_provider_gemini_requires_api_key() {
+        let cfg = ProviderConfig {
+            kind: ProviderKind::Gemini,
+            base_url: None,
+            api_key: None,
+        };
+        let err = build_llm_provider(&cfg).err().expect("must reject");
+        assert_eq!(err.code(), "LLM_AUTH_FAILED");
+        assert_eq!(err.provider(), "gemini");
+    }
+
+    #[test]
+    fn build_llm_provider_gemini_with_key_succeeds() {
+        let cfg = ProviderConfig {
+            kind: ProviderKind::Gemini,
+            base_url: None,
+            api_key: Some("AIza-test".into()),
+        };
+        let name = build_llm_provider(&cfg)
+            .map(|p| p.name())
+            .expect("gemini ok");
+        assert_eq!(name, "gemini");
     }
 
     #[test]
@@ -396,6 +441,7 @@ mod tests {
             ProviderKind::OpenAi,
             ProviderKind::OpenRouter,
             ProviderKind::Anthropic,
+            ProviderKind::Gemini,
         ] {
             // serde wraps the kebab-case value in JSON quotes
             let json = serde_json::to_string(&kind).expect("serialize");
@@ -411,6 +457,7 @@ mod tests {
             ProviderKind::OpenAi,
             ProviderKind::OpenRouter,
             ProviderKind::Anthropic,
+            ProviderKind::Gemini,
         ] {
             let parsed = ProviderKind::from_str_value(kind.as_str()).expect("parse");
             assert_eq!(parsed, kind);
