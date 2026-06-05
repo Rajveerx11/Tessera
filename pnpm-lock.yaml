@@ -38,9 +38,6 @@ importers:
       '@testing-ide/shared':
         specifier: file:../../packages/shared
         version: link:../../packages/shared
-      '@testing-ide/ui':
-        specifier: file:../../packages/ui
-        version: link:../../packages/ui
       class-variance-authority:
         specifier: ^0.7.1
         version: 0.7.1
@@ -171,19 +168,6 @@ importers:
         version: 3.2.4(@types/debug@4.1.13)(@types/node@22.19.17)(jiti@2.6.1)(lightningcss@1.32.0)
 
   packages/tsconfig: {}
-
-  packages/ui:
-    dependencies:
-      '@testing-ide/shared':
-        specifier: file:../shared
-        version: link:../shared
-    devDependencies:
-      typescript:
-        specifier: ~5.7.2
-        version: 5.7.3
-      vitest:
-        specifier: ^3.0.0
-        version: 3.2.4(@types/debug@4.1.13)(@types/node@22.19.17)(jiti@2.6.1)(lightningcss@1.32.0)
 
 packages:
 

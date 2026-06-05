@@ -125,7 +125,7 @@ pnpm --filter @testing-ide/desktop run dev     # boots Vite + Tauri; the desktop
 
 - **macOS** — `xcode-select --install`.
 - **Linux** — install Tauri's system deps: `libwebkit2gtk-4.1-dev libssl-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev build-essential curl wget file`.
-- **Optional shared stack** — `pnpm services:up` / `services:down` runs pgvector + Ollama via [`docker-compose.yml`](./docker-compose.yml).
+- **Optional shared stack** — `pnpm services:up` / `services:down` runs Ollama via [`docker-compose.yml`](./docker-compose.yml).
 
 ---
 
@@ -161,7 +161,6 @@ Clippy runs clean under `-W clippy::pedantic`; release builds are green on Windo
 apps/desktop/        Tauri shell — React frontend (src/) + Rust backend (src-tauri/)
 packages/
   shared/            Zod schemas + inferred TS types (the FE/BE contract)
-  ui/                shadcn/ui-flavored shared components
   eslint-config/     base + React presets
   tsconfig/          base + desktop presets
 rules/               engineering rulebook (rules.md)

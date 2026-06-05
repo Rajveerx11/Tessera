@@ -68,7 +68,6 @@ apps/desktop/        Tauri shell — React frontend + Rust backend
 
 packages/
   shared/            Zod schemas + inferred TS types — the FE/BE contract
-  ui/                shadcn/ui component library
   eslint-config/     Shared ESLint presets
   tsconfig/          Shared TS configs
 
