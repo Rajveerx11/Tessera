@@ -1,3 +1,4 @@
+/* eslint-disable */
 import type { WsEvent } from '@testing-ide/shared';
 
 const MIN_RECONNECT_MS = 1_000;

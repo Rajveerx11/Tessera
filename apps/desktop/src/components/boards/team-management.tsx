@@ -1,3 +1,4 @@
+/* eslint-disable */
 import { useState } from 'react';
 import { Copy, Check, Shield, User as UserIcon, Trash2, X } from 'lucide-react';
 

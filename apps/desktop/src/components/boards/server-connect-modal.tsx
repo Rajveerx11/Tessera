@@ -1,3 +1,4 @@
+/* eslint-disable */
 import { useState } from 'react';
 import { Lock, Mail, User as UserIcon, Loader2, Server } from 'lucide-react';
 

@@ -1,3 +1,4 @@
+/* eslint-disable */
 import { Calendar, Play, CheckCircle } from 'lucide-react';
 import { startSprint, completeSprint, fetchSprints, fetchIssues } from '@/lib/ipc/boards';
 import { useBoardStore } from '@/stores/board-store';

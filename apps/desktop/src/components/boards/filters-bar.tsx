@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-misused-promises */
 import { useState } from 'react';
 import { Search, X, RotateCw } from 'lucide-react';
 

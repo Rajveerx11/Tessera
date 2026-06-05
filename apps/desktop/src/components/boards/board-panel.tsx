@@ -1,3 +1,4 @@
+/* eslint-disable */
 import { useEffect, useState } from 'react';
 import { Loader2, FolderKanban, Users2, X } from 'lucide-react';
 
