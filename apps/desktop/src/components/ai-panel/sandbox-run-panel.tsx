@@ -1,6 +1,6 @@
 import type { RunResult, TestResult } from '@testing-ide/shared';
 import { CheckCircle2, Loader2, Play, Square, XCircle } from 'lucide-react';
-import { useCallback } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 
 import { Button } from '@/components/ui/button';
 import { getErrorMessage, sandbox } from '@/lib/ipc';
@@ -29,6 +29,25 @@ export function SandboxRunPanel({ artifactId }: Props) {
   const fail = useSandboxStore((s) => s.fail);
 
   const running = runState.phase === 'running';
+
+  // Cancel an in-flight run when the panel unmounts (e.g. the artifact
+  // drawer closes) so the Docker container is killed immediately instead of
+  // burning compute until it finishes or times out. A ref keeps the effect
+  // mount/unmount-only — re-running it on every state change would cancel
+  // healthy runs.
+  const inFlightRef = useRef<string | null>(null);
+  inFlightRef.current = running ? runState.clientRunId : null;
+  useEffect(
+    () => () => {
+      const clientRunId = inFlightRef.current;
+      if (clientRunId !== null) {
+        void sandbox.cancelTestSandbox(clientRunId).catch(() => {
+          // Best-effort: the blocking run IPC still resolves and settles state.
+        });
+      }
+    },
+    [],
+  );
 
   const handleRun = useCallback(() => {
     if (!optIn) return;

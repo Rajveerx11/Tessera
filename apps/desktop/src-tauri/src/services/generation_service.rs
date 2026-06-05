@@ -958,6 +958,13 @@ fn normalize_js_strings(raw: &str) -> String {
     for ch in raw.chars() {
         if let Some(quote) = in_string {
             if escaped {
+                // JSON has no `\'` escape: an escaped single quote (legal in
+                // JS in both quote styles) must become a bare `'` inside the
+                // double-quoted JSON output. The `\` was already pushed —
+                // pop it. `\"` stays intact (valid JSON escape).
+                if ch == '\'' {
+                    out.pop();
+                }
                 out.push(ch);
                 escaped = false;
             } else if ch == '\\' {
@@ -1938,18 +1945,52 @@ mod tests {
 
     #[test]
     fn salvage_tool_args_recovers_single_quoted_tool_code_strings() {
-        let text = r#"<tool_code>
+        let text = r"<tool_code>
             console.log(default_api.emit_test_plan({
                 summary: 'Plan with a } brace in prose',
                 strategy: 'Verify parser resilience',
             }))
-        </tool_code>"#;
+        </tool_code>";
 
         let got = salvage_tool_args(text, "emit_test_plan").expect("salvage");
         let mut parsed: serde_json::Value = serde_json::from_str(&got).unwrap();
         normalize_missing_arrays(&mut parsed, &test_plan_v1::tool());
         validate_tool_output(&test_plan_v1::tool(), &parsed).expect("valid test plan");
         assert_eq!(parsed["summary"], "Plan with a } brace in prose");
+    }
+
+    #[test]
+    fn normalize_js_strings_drops_escaped_single_quote_backslash() {
+        // `\'` is a legal JS escape but not a legal JSON escape — the
+        // backslash must be dropped, in both quote styles.
+        assert_eq!(
+            normalize_js_strings(r"{summary: 'it\'s a test'}"),
+            r#"{summary: "it's a test"}"#
+        );
+        assert_eq!(
+            normalize_js_strings(r#"{summary: "it\'s a test"}"#),
+            r#"{summary: "it's a test"}"#
+        );
+        // `\"` and `\\` are valid JSON escapes and must survive untouched.
+        assert_eq!(
+            normalize_js_strings(r#"{summary: "say \"hi\" \\ there"}"#),
+            r#"{summary: "say \"hi\" \\ there"}"#
+        );
+    }
+
+    #[test]
+    fn salvage_tool_args_recovers_escaped_single_quotes_in_js_strings() {
+        let text = r"<tool_code>
+            console.log(default_api.emit_test_plan({
+                summary: 'it\'s a test of the parser\'s escapes',
+                strategy: 'Verify salvage handles \' sequences',
+            }))
+        </tool_code>";
+
+        let got = salvage_tool_args(text, "emit_test_plan").expect("salvage");
+        let parsed: serde_json::Value = serde_json::from_str(&got).unwrap();
+        assert_eq!(parsed["summary"], "it's a test of the parser's escapes");
+        assert_eq!(parsed["strategy"], "Verify salvage handles ' sequences");
     }
 
     #[test]
@@ -2114,7 +2155,7 @@ mod tests {
         let mut parsed: serde_json::Value = serde_json::from_str(&raw).unwrap();
         normalize_missing_arrays(&mut parsed, &schema);
         validate_tool_output(&schema, &parsed).expect("valid context payload");
-        assert!(parsed["summary"].as_str().unwrap().contains("X"));
+        assert!(parsed["summary"].as_str().unwrap().contains('X'));
     }
 
     #[test]

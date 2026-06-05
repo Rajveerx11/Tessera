@@ -265,8 +265,24 @@ async fn run_container(
         .args(["--cap-drop", "ALL"])
         .args(["--security-opt", "no-new-privileges"])
         .args(["-v", &mount])
-        .args(["-w", WORK_MOUNT])
-        .arg(RUNNER_IMAGE)
+        .args(["-w", WORK_MOUNT]);
+
+    // The workspace is 0o700 host-user-only (see `WorkspaceGuard::create`),
+    // so the container must run as the host uid:gid to write `results.json`
+    // + coverage into the bind mount — and every file it creates stays owned
+    // by the host user, keeping the `Drop` cleanup working. The uid has no
+    // passwd entry in the image, so HOME points at the writable tmpfs.
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        let meta = std::fs::metadata(workspace).map_err(|e| {
+            RunnerError::Workspace(format!("stat workspace {}: {e}", workspace.display()))
+        })?;
+        let user = format!("{}:{}", meta.uid(), meta.gid());
+        cmd.args(["--user", &user]).args(["-e", "HOME=/tmp"]);
+    }
+
+    cmd.arg(RUNNER_IMAGE)
         .args(["sh", "-c", IN_CONTAINER_CMD])
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -561,15 +577,15 @@ impl WorkspaceGuard {
         let path = root.join(format!("tessera-run-{}", Uuid::new_v4()));
         std::fs::create_dir_all(&path)
             .map_err(|e| RunnerError::Workspace(format!("create workspace {}: {e}", path.display())))?;
-        // The container runs as a non-root user (image `USER`), so it must be
-        // able to write `results.json` + coverage back into the bind-mounted
-        // workspace. Making the throwaway dir group/other-writable also keeps
-        // host-side cleanup working (a root-owned file would defeat the Drop
-        // remover). The dir lives under the per-user temp root for one run.
+        // Owner-only: a world-writable workspace would let another local uid
+        // inject a hostile `results.json` or swap a source file in the window
+        // between creation and `docker run`. The container is started as the
+        // host uid:gid (see `run_container`), so it can still write results
+        // into the bind mount and host-side `Drop` cleanup keeps working.
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
-            std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o777)).map_err(
+            std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o700)).map_err(
                 |e| RunnerError::Workspace(format!("chmod workspace {}: {e}", path.display())),
             )?;
         }
