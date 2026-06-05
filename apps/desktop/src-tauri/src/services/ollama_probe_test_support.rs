@@ -388,13 +388,13 @@ mod tests {
                 tools: vec![tool_schema.clone()],
                 temperature: Some(0.1),
                 // Mirror the production generation budget
-                // (`RESPONSE_RESERVE_TOKENS`). The test-cases payload for
-                // the auth fixture overruns a 2k cap on the 3B model CI
-                // ships, truncating the free-text JSON the model emits
-                // mid-`steps` array — the salvage path then cannot balance
-                // the object and the probe fails. 4k matches what the
-                // desktop app actually reserves, keeping probe + prod in
-                // lockstep.
+                // (`RESPONSE_RESERVE_TOKENS`). The test-cases payload now
+                // carries a runnable `files[]` array on top of the cases,
+                // which overruns a 4k cap on the 3B model CI ships —
+                // truncating the free-text JSON the model emits mid-array
+                // so the salvage path cannot balance the object and the
+                // probe fails. Reading the const (now 6k) keeps probe +
+                // prod in lockstep so this stays fixed in one place.
                 max_tokens: Some(crate::services::generation_service::RESPONSE_RESERVE_TOKENS),
                 stop_sequences: Vec::new(),
             })
