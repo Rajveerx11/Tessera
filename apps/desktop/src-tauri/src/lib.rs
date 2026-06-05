@@ -120,6 +120,8 @@ pub fn run() {
             commands::hardware::detect_hardware,
             // Ollama bootstrap command (Phase 7)
             commands::ollama::check_ollama_status,
+            // Sandbox test-runner command (sandbox runner Phase 2)
+            commands::sandbox::run_test_sandbox,
         ])
         .run(tauri::generate_context!())
         .expect("failed to start Tauri application");
