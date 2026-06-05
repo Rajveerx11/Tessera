@@ -557,6 +557,25 @@ describe('RunRequestSchema', () => {
     });
     expect(parsed.clientRunId).toBe('8a3e4567-e89b-12d3-a456-426614174999');
   });
+
+  it('accepts any non-empty clientRunId — the Rust RunRequest is a plain String (§12.3.1)', () => {
+    const parsed = RunRequestSchema.parse({
+      artifactId: '123e4567-e89b-12d3-a456-426614174000',
+      optInConfirmed: true,
+      clientRunId: 'cli-run-42',
+    });
+    expect(parsed.clientRunId).toBe('cli-run-42');
+  });
+
+  it('rejects an empty clientRunId', () => {
+    expect(() =>
+      RunRequestSchema.parse({
+        artifactId: '123e4567-e89b-12d3-a456-426614174000',
+        optInConfirmed: true,
+        clientRunId: '',
+      }),
+    ).toThrow();
+  });
 });
 
 describe('TestResultSchema', () => {
