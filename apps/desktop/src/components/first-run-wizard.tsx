@@ -99,7 +99,7 @@ export function FirstRunWizard({ onComplete }: Props) {
 }
 
 function Header({ step }: { step: Step }) {
-  const labels = ['Welcome', 'Hardware', 'Engine', 'Model'];
+  const labels = ['Welcome', 'Your machine', 'Local AI', 'Model'];
   return (
     <div className="bg-surface-3 shrink-0 border-b border-border p-6">
       <div className="mb-3 flex items-center justify-between gap-3">
@@ -113,7 +113,7 @@ function Header({ step }: { step: Step }) {
           <span className="flex items-baseline gap-2">
             <span className="font-brand text-primary text-lg">tessera</span>
             <span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
-              setup · step {step} of 4
+              quick setup · {step} of 4
             </span>
           </span>
         </h1>
@@ -156,13 +156,24 @@ function Footer({
         Back
       </Button>
       {step < 4 ? (
-        <Button type="button" size="sm" onClick={() => setStep(nextStep(step))}>
-          Continue
-          <ArrowRight className="size-4" />
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="text-muted-foreground"
+            onClick={finish}
+          >
+            Skip for now
+          </Button>
+          <Button type="button" size="sm" onClick={() => setStep(nextStep(step))}>
+            Continue
+            <ArrowRight className="size-4" />
+          </Button>
+        </div>
       ) : (
         <Button type="button" size="sm" onClick={finish}>
-          Launch IDE
+          Start using Tessera
           <Check className="size-4" />
         </Button>
       )}
@@ -174,13 +185,13 @@ function StepOne() {
   return (
     <Section title="Welcome to Tessera">
       <p className="text-muted-foreground text-sm">
-        Local-first IDE for generating test plans, test cases, defect reports, and bug reports
-        against any codebase — with AI you control.
+        Turn your code into test plans, test cases, and bug reports — with AI that runs entirely
+        on your machine.
       </p>
       <ul className="mt-4 space-y-2 text-sm">
-        <Bullet>Runs offline by default via Ollama.</Bullet>
-        <Bullet>Bring your own OpenAI / Anthropic / OpenRouter key for cloud models.</Bullet>
-        <Bullet>API keys stored encrypted at rest (AES-GCM); never logged.</Bullet>
+        <Bullet>Private by default — your code never leaves this computer.</Bullet>
+        <Bullet>Free local AI via Ollama, or bring your own OpenAI / Anthropic key.</Bullet>
+        <Bullet>Setup takes about a minute, and everything can be changed later in Settings.</Bullet>
       </ul>
     </Section>
   );
@@ -196,9 +207,10 @@ function StepTwo({
   tier: HardwareTier | null;
 }) {
   return (
-    <Section title="Hardware detection">
+    <Section title="Let's check your computer">
       <p className="text-muted-foreground text-sm">
-        Detected from this machine — no telemetry leaves the renderer.
+        A quick look at your hardware so we can suggest an AI model that runs smoothly here.
+        Nothing is sent anywhere.
       </p>
       {error !== null ? (
         <p className="text-destructive mt-3 text-sm" role="alert">
@@ -230,7 +242,7 @@ function StepTwo({
       )}
       {tier !== null ? (
         <div className="mt-4 rounded-lg border border-border bg-background p-3 text-sm">
-          <p className="font-medium">Suggested tier: {tier.label}</p>
+          <p className="font-medium">Best fit for this machine: {tier.label}</p>
           <p className="text-muted-foreground mt-1 text-xs">{tier.rationale}</p>
         </div>
       ) : null}
@@ -270,16 +282,16 @@ function StepThree() {
   }, []);
 
   return (
-    <Section title="Local AI engine">
+    <Section title="Connect your local AI">
       <p className="text-muted-foreground text-sm">
-        Testing IDE uses Ollama for local inference. Install from{' '}
-        <code className="bg-muted rounded px-1 text-xs">ollama.com</code> and run{' '}
-        <code className="bg-muted rounded px-1 text-xs">ollama serve</code>.
+        Tessera uses Ollama to run AI models privately on your computer — free, no account
+        needed. Don't have it yet? Download it from{' '}
+        <code className="bg-muted rounded px-1 text-xs">ollama.com</code> and open it.
       </p>
       <div className="mt-4 rounded-md border border-border bg-background p-4">
         {pending ? (
           <p className="text-muted-foreground flex items-center gap-2 text-sm">
-            <Loader2 className="size-3 animate-spin" /> Probing http://localhost:11434…
+            <Loader2 className="size-3 animate-spin" /> Looking for Ollama…
           </p>
         ) : result?.ok === true ? (
           <p className="text-success flex items-center gap-2 text-sm">
@@ -287,13 +299,14 @@ function StepThree() {
             <span className="text-muted-foreground">({result.latencyMs} ms)</span>
           </p>
         ) : (
-          <p className="text-destructive flex items-start gap-2 text-sm" role="alert">
-            <X className="mt-0.5 size-4 shrink-0" />
+          <p className="flex items-start gap-2 text-sm" role="alert">
+            <X className="text-warning mt-0.5 size-4 shrink-0" />
             <span>
-              {result?.message ?? 'Probe failed'}
+              Ollama isn't running yet — that's okay.
               <br />
               <span className="text-muted-foreground text-xs">
-                You can still continue and configure cloud providers in Settings.
+                You can finish setup now and connect it later from Settings, or use a cloud
+                provider instead.
               </span>
             </span>
           </p>
@@ -357,32 +370,32 @@ function StepFour({ tier }: { tier: HardwareTier | null }) {
   }, [model]);
 
   return (
-    <Section title="Pick a default model">
+    <Section title="Choose your AI model">
       <p className="text-muted-foreground text-sm">
-        Saves an Ollama provider config so the AI panel works on first launch. Add cloud providers
-        anytime in Settings.
+        We've highlighted the best fit for your hardware. You can switch models anytime in
+        Settings.
       </p>
       <div className="mt-4 space-y-3">
         <ModelOption
           model="qwen2.5-coder:7b"
-          label="Qwen 2.5 Coder 7B"
-          hint="Default. ~4.7 GB. Runs on 8 GB VRAM or 16 GB RAM CPU."
+          label="Balanced"
+          hint="Good speed and quality for most computers. Needs ~8 GB of free memory."
           checked={model === 'qwen2.5-coder:7b'}
           onChoose={() => setModel('qwen2.5-coder:7b')}
           recommended={recommended === 'qwen2.5-coder:7b'}
         />
         <ModelOption
           model="qwen2.5-coder:1.5b"
-          label="Qwen 2.5 Coder 1.5B"
-          hint="Smaller. CPU-only on modest hardware. Slower but lighter."
+          label="Light"
+          hint="Smallest and fastest to set up — ideal for laptops with 8 GB RAM or less."
           checked={model === 'qwen2.5-coder:1.5b'}
           onChoose={() => setModel('qwen2.5-coder:1.5b')}
           recommended={recommended === 'qwen2.5-coder:1.5b'}
         />
         <ModelOption
           model="qwen2.5-coder:14b"
-          label="Qwen 2.5 Coder 14B"
-          hint="Better quality. Needs ~12-16 GB VRAM (RTX 4070 Ti / M2 Pro)."
+          label="Quality"
+          hint="Best results, but needs a powerful GPU (12 GB+ VRAM)."
           checked={model === 'qwen2.5-coder:14b'}
           onChoose={() => setModel('qwen2.5-coder:14b')}
           recommended={recommended === 'qwen2.5-coder:14b'}
@@ -397,8 +410,8 @@ function StepFour({ tier }: { tier: HardwareTier | null }) {
         <div className="border-warning/30 bg-warning/5 mt-3 rounded-md border p-2.5 text-xs">
           <p className="text-warning">
             {probeFailed
-              ? 'Ollama is unreachable. Start the daemon then run:'
-              : `Model not pulled yet. Run:`}
+              ? 'Ollama is not running. Once it is, download this model with:'
+              : 'One more step — download this model by running:'}
           </p>
           <code className="bg-muted text-foreground mt-1.5 block rounded px-2 py-1.5 font-mono text-[11px]">
             ollama pull {model}
@@ -406,12 +419,12 @@ function StepFour({ tier }: { tier: HardwareTier | null }) {
         </div>
       ) : null}
       {saved !== null ? (
-        <p className="text-success mt-3 text-xs">Saved {saved} ✓</p>
+        <p className="text-success mt-3 text-xs">All set — {saved} is your default model ✓</p>
       ) : null}
       <div className="mt-4">
         <Button type="button" size="sm" variant="outline" onClick={save} disabled={saving}>
           {saving ? <Loader2 className="size-3.5 animate-spin" /> : null}
-          {saved === model ? 'Saved' : 'Save selection'}
+          {saved === model ? 'Saved' : 'Use this model'}
         </Button>
       </div>
     </Section>

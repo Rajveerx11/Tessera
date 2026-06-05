@@ -27,7 +27,14 @@
       "Bash(gh issue create --repo Rajveerx11/Testing-IDE --title 'ADR backlog: 0001 \\(embeddings\\) — opened, 0002 \\(vec0 migration\\) + 0003 \\(LlmProvider\\) pending' --body ' *)",
       "PowerShell($env:Path = \"$env:USERPROFILE\\\\.cargo\\\\bin;$env:Path\"; Set-Location \"C:\\\\Testing IDE\\\\apps\\\\desktop\\\\src-tauri\"; cargo fmt --check; \"fmt_exit=$LASTEXITCODE\"; cargo clippy --all-targets -- -D warnings 2>&1 | Select-Object -Last 5; \"clippy_exit=$LASTEXITCODE\")",
       "PowerShell($env:Path = \"$env:USERPROFILE\\\\.cargo\\\\bin;$env:Path\"; Set-Location \"C:\\\\Testing IDE\\\\apps\\\\desktop\\\\src-tauri\"; cargo test --no-fail-fast 2>&1 | Select-String -Pattern \"test result|running|FAILED|passed\" | Select-Object -Last 30; \"test_exit=$LASTEXITCODE\")",
-      "Bash(curl -sS --max-time 3 http://localhost:11434/api/tags)"
+      "Bash(curl -sS --max-time 3 http://localhost:11434/api/tags)",
+      "PowerShell(cargo clippy *)",
+      "PowerShell(if \\(Test-Path \"$env:USERPROFILE\\\\.cargo\\\\bin\\\\cargo.exe\"\\) { & \"$env:USERPROFILE\\\\.cargo\\\\bin\\\\cargo.exe\" --version } else { Get-ChildItem \"$env:USERPROFILE\\\\.cargo\" -ErrorAction SilentlyContinue | Select-Object Name })",
+      "PowerShell(cargo test *)",
+      "PowerShell(corepack pnpm *)",
+      "PowerShell(git add *)",
+      "PowerShell(git push *)",
+      "PowerShell(gh pr view feat/sandbox-test-runner --json number,title,url,state -q '.')"
     ]
   }
 }
