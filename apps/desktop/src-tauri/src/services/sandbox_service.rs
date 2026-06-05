@@ -23,7 +23,8 @@
 //! (opt-out, missing / wrong-type artifact, unbuildable workspace) short
 //! circuit with an `Err`.
 
-use std::sync::Arc;
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Instant;
 
 use serde_json::Value as JsonValue;
@@ -36,12 +37,72 @@ use crate::providers::runners::{
 use crate::repositories::artifact_repo::{self, ArtifactType};
 use crate::repositories::test_run_repo::{self, RunOutcome, TestRunInsert};
 
+/// In-flight run → [`CancelToken`] map, shared between [`run`] (which
+/// registers a token for the duration of a run) and the `cancel_test_sandbox`
+/// command (which fires it on a user Stop). Managed as Tauri state so both the
+/// run command and the cancel command see the same map (plan §5 — UI Stop
+/// wiring). Cloning shares the inner map (`Arc`).
+#[derive(Clone, Default)]
+pub struct RunRegistry {
+    inner: Arc<Mutex<HashMap<String, CancelToken>>>,
+}
+
+impl RunRegistry {
+    #[must_use]
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    fn register(&self, run_id: &str, token: CancelToken) {
+        self.lock().insert(run_id.to_string(), token);
+    }
+
+    fn unregister(&self, run_id: &str) {
+        self.lock().remove(run_id);
+    }
+
+    /// Fire the cancellation token for `run_id`. Returns `true` when a live
+    /// run matched (token fired), `false` when no such run is in flight (it
+    /// already finished, or the id is unknown — both are no-ops for the UI).
+    #[must_use]
+    pub fn cancel(&self, run_id: &str) -> bool {
+        let token = self.lock().get(run_id).cloned();
+        match token {
+            Some(t) => {
+                t.cancel();
+                true
+            }
+            None => false,
+        }
+    }
+
+    fn lock(&self) -> std::sync::MutexGuard<'_, HashMap<String, CancelToken>> {
+        self.inner.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+}
+
+/// Unregisters a run's token on scope exit so a token never outlives its
+/// run, on the happy path or any early `?` return.
+struct RegistryGuard<'a> {
+    registry: &'a RunRegistry,
+    run_id: &'a str,
+}
+
+impl Drop for RegistryGuard<'_> {
+    fn drop(&mut self) {
+        self.registry.unregister(self.run_id);
+    }
+}
+
 /// References [`run`] needs, bundled so the public signature stays short
 /// and the runner is trivially swappable in tests (mirrors
 /// `GenerationDeps`).
 pub struct SandboxDeps<'a> {
     pub pool: &'a sqlx::SqlitePool,
     pub runner: Arc<dyn TestRunner>,
+    /// Live-run registry so a concurrent `cancel_test_sandbox` can stop this
+    /// run mid-flight. Tests pass a throwaway [`RunRegistry::new`].
+    pub registry: &'a RunRegistry,
 }
 
 /// Execute one sandboxed run end to end and return the persisted result.
@@ -90,15 +151,34 @@ pub async fn run(request: RunRequest, deps: &SandboxDeps<'_>) -> AppResult<RunRe
         },
     )
     .await?;
+
+    let span = tracing::info_span!(
+        "sandbox_run",
+        run_id = %run_id,
+        runner = deps.runner.name(),
+        files = input.files.len(),
+    );
+    let _enter = span.enter();
+
     test_run_repo::mark_running(deps.pool, &run_id).await?;
 
-    // 5. Drive the runner. The cancellation token is created here so a
-    //    user Stop (Phase 5, via a per-run registry) can fire it; the
-    //    runner's own wall-clock timeout is independent of it.
+    // 5. Drive the runner. The cancellation token is registered under the
+    //    run id so a concurrent `cancel_test_sandbox` can fire it; the
+    //    `RegistryGuard` removes it on every exit path. The runner's own
+    //    wall-clock timeout is independent of this user-Stop token.
     let cancel = CancelToken::new();
+    deps.registry.register(&run_id, cancel.clone());
+    let _guard = RegistryGuard { registry: deps.registry, run_id: &run_id };
+
+    tracing::debug!("driving runner");
     let started = Instant::now();
     let outcome = deps.runner.run(input, cancel).await;
     let duration_ms = elapsed_ms(started);
+
+    match &outcome {
+        Ok(output) => tracing::debug!(status = output.status.as_str(), duration_ms, "runner finished"),
+        Err(err) => tracing::debug!(code = err.code(), duration_ms, "runner errored"),
+    }
 
     match outcome {
         Ok(output) => persist_success(deps, &run_id, output, duration_ms).await?,
@@ -107,6 +187,16 @@ pub async fn run(request: RunRequest, deps: &SandboxDeps<'_>) -> AppResult<RunRe
 
     // 6. Read back the canonical result.
     test_run_repo::fetch_run(deps.pool, &run_id).await
+}
+
+/// Request cancellation of an in-flight run. Returns `true` when a live run
+/// matched. The orchestration entry point for the `cancel_test_sandbox`
+/// command (commands depend on the service, not the registry internals).
+#[must_use]
+pub fn request_cancel(registry: &RunRegistry, run_id: &str) -> bool {
+    let cancelled = registry.cancel(run_id);
+    tracing::info!(run_id, cancelled, "sandbox cancel requested");
+    cancelled
 }
 
 /// Persist a completed run's cases, coverage, and terminal status.
@@ -381,7 +471,8 @@ mod tests {
 
         let runner: Arc<dyn TestRunner> =
             Arc::new(ScriptedRunner::new(Scripted::Succeed(sample_output())));
-        let deps = SandboxDeps { pool: &pool, runner };
+        let registry = RunRegistry::new();
+        let deps = SandboxDeps { pool: &pool, runner, registry: &registry };
 
         let result = run(
             RunRequest {
@@ -412,7 +503,8 @@ mod tests {
 
         let runner: Arc<dyn TestRunner> =
             Arc::new(ScriptedRunner::new(Scripted::Succeed(sample_output())));
-        let deps = SandboxDeps { pool: &pool, runner };
+        let registry = RunRegistry::new();
+        let deps = SandboxDeps { pool: &pool, runner, registry: &registry };
 
         let err = run(
             RunRequest {
@@ -436,7 +528,8 @@ mod tests {
 
         let runner: Arc<dyn TestRunner> =
             Arc::new(ScriptedRunner::new(Scripted::Succeed(sample_output())));
-        let deps = SandboxDeps { pool: &pool, runner };
+        let registry = RunRegistry::new();
+        let deps = SandboxDeps { pool: &pool, runner, registry: &registry };
 
         let err = run(
             RunRequest {
@@ -461,7 +554,8 @@ mod tests {
         let runner: Arc<dyn TestRunner> = Arc::new(ScriptedRunner::new(Scripted::Fail(
             RunnerError::DockerUnavailable("daemon down".into()),
         )));
-        let deps = SandboxDeps { pool: &pool, runner };
+        let registry = RunRegistry::new();
+        let deps = SandboxDeps { pool: &pool, runner, registry: &registry };
 
         let result = run(
             RunRequest {
@@ -523,7 +617,8 @@ mod tests {
 
         let runner: Arc<dyn TestRunner> =
             Arc::new(ScriptedRunner::new(Scripted::Succeed(sample_output())));
-        let deps = SandboxDeps { pool: &pool, runner };
+        let registry = RunRegistry::new();
+        let deps = SandboxDeps { pool: &pool, runner, registry: &registry };
 
         let err = run(
             RunRequest {
@@ -538,5 +633,24 @@ mod tests {
 
         pool.close().await;
         let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn registry_cancel_fires_only_the_matching_live_run() {
+        let registry = RunRegistry::new();
+        let token = CancelToken::new();
+        registry.register("run-1", token.clone());
+
+        // Unknown id is a no-op; the live run's token is untouched.
+        assert!(!request_cancel(&registry, "run-x"));
+        assert!(!token.is_cancelled());
+
+        // Matching id fires the token.
+        assert!(request_cancel(&registry, "run-1"));
+        assert!(token.is_cancelled());
+
+        // After the run deregisters, a late Stop is a no-op.
+        registry.unregister("run-1");
+        assert!(!request_cancel(&registry, "run-1"));
     }
 }

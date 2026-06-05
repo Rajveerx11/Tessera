@@ -103,8 +103,10 @@ impl TestRunner for DockerJsRunner {
         // Workspace is removed when `guard` drops — covers the happy path,
         // every `?` early-return, and a panic (§10: always cleaned up).
         let guard = WorkspaceGuard::create(&self.workspace_root())?;
+        tracing::debug!(files = input.files.len(), "materializing workspace");
         materialize_workspace(guard.path(), &input)?;
 
+        tracing::debug!(language = ?input.language, "starting container");
         let output = run_container(guard.path(), &input, &cancel).await?;
         let stdout = truncate(&output.stdout);
         let stderr = truncate(&output.stderr);
@@ -128,6 +130,12 @@ impl TestRunner for DockerJsRunner {
             .map(|json| parse_istanbul_coverage(&json))
             .transpose()?
             .unwrap_or_default();
+
+        tracing::debug!(
+            tests = tests.len(),
+            coverage_lines = coverage.len(),
+            "parsed runner output"
+        );
 
         let status = derive_status(&tests);
 

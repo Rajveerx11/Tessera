@@ -15,7 +15,7 @@ use tauri::State;
 
 use crate::providers::runners::docker_js::DockerJsRunner;
 use crate::providers::runners::{RunRequest, RunResult, TestRunner};
-use crate::services::sandbox_service::{self, SandboxDeps};
+use crate::services::sandbox_service::{self, RunRegistry, SandboxDeps};
 
 /// Execute a generated test-case artifact in the local Docker sandbox and
 /// return the persisted result.
@@ -32,14 +32,29 @@ use crate::services::sandbox_service::{self, SandboxDeps};
 #[allow(clippy::needless_pass_by_value)] // Tauri IPC requires owned argument types.
 pub async fn run_test_sandbox(
     pool: State<'_, SqlitePool>,
+    registry: State<'_, RunRegistry>,
     request: RunRequest,
 ) -> Result<RunResult, String> {
     let runner: Arc<dyn TestRunner> = Arc::new(DockerJsRunner::new());
     let deps = SandboxDeps {
         pool: &pool,
         runner,
+        registry: &registry,
     };
     sandbox_service::run(request, &deps)
         .await
         .map_err(|e| e.to_string())
+}
+
+/// Request cancellation of an in-flight sandbox run (UI Stop button). Fires
+/// the run's cancellation token, which the runner races against — on a hit
+/// the container is `docker kill`ed and the run finalizes as `cancelled`.
+///
+/// Returns `true` when a live run matched, `false` when the run already
+/// finished or the id is unknown (both benign for the UI).
+#[tauri::command]
+#[must_use]
+#[allow(clippy::needless_pass_by_value)] // Tauri IPC requires owned argument types.
+pub fn cancel_test_sandbox(registry: State<'_, RunRegistry>, run_id: String) -> bool {
+    sandbox_service::request_cancel(&registry, &run_id)
 }
