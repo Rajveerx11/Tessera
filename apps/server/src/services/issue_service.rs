@@ -224,6 +224,26 @@ pub async fn create_issue(
         }
     };
 
+    // Verify the parent issue (if any) belongs to the same board. A cross-board
+    // parent would let `ON DELETE CASCADE` silently delete this issue when the
+    // foreign board's parent is removed.
+    if let Some(parent_id) = payload.parent_id {
+        let parent_board_id: Option<Uuid> =
+            sqlx::query_scalar("SELECT board_id FROM issues WHERE id = $1")
+                .bind(parent_id)
+                .fetch_optional(pool)
+                .await?;
+        match parent_board_id {
+            Some(parent_board) if parent_board == board_id => {}
+            Some(_) => {
+                return Err(ApiError::Validation(
+                    "parent issue does not belong to this board".into(),
+                ));
+            }
+            None => return Err(ApiError::NotFound("parent issue not found".into())),
+        }
+    }
+
     let mut tx = pool.begin().await?;
 
     // Increment issue counter on board
