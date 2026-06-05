@@ -106,7 +106,7 @@ export function SandboxRunPanel({ artifactId }: Props) {
 function RunResultView({ result }: { result: RunResult }) {
   const isError = result.status === 'error';
   return (
-    <div className="space-y-2">
+    <div className="space-y-2" data-testid="sandbox-results">
       <div className="flex flex-wrap items-center gap-2 text-xs">
         <span className={`pill pill-${result.status === 'passed' ? 'approved' : result.status === 'failed' || isError ? 'rejected' : 'draft'}`}>
           {result.status}

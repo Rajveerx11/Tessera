@@ -98,8 +98,11 @@ test.describe('desktop app flow', () => {
     await runButton.click();
 
     // Results panel renders the scripted pass/fail summary + the failure.
-    await expect(drawer.getByText('1/2 passed')).toBeVisible();
-    await expect(drawer.getByText('invalid password is rejected')).toBeVisible();
-    await expect(drawer.getByText('expected 401 to equal 200')).toBeVisible();
+    // Scope to the results region — the failing test name also appears in the
+    // rendered artifact markdown above, which would trip strict mode.
+    const results = drawer.getByTestId('sandbox-results');
+    await expect(results.getByText('1/2 passed')).toBeVisible();
+    await expect(results.getByText('invalid password is rejected')).toBeVisible();
+    await expect(results.getByText('expected 401 to equal 200')).toBeVisible();
   });
 });
