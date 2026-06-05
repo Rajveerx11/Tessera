@@ -379,10 +379,109 @@ BEGIN
 END;
 $$;
 
+-- Complete a sprint atomically: status guard, done-column anchor, the
+-- backlog move, and the completion update all run in a single transaction,
+-- so a mid-way failure can no longer strand an active sprint whose issues
+-- were already detached.
+CREATE OR REPLACE FUNCTION public.complete_sprint_atomic(p_sprint_id UUID)
+RETURNS sprints
+LANGUAGE plpgsql SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+    v_board_id UUID;
+    v_status TEXT;
+    v_done_column_id UUID;
+    v_sprint sprints;
+BEGIN
+    SELECT board_id, status INTO v_board_id, v_status
+    FROM sprints WHERE id = p_sprint_id;
+
+    IF v_board_id IS NULL THEN
+        RAISE EXCEPTION 'sprint not found';
+    END IF;
+
+    IF NOT public.is_team_writer(public.board_team_id(v_board_id)) THEN
+        RAISE EXCEPTION 'not authorized to complete sprints on this board';
+    END IF;
+
+    IF v_status <> 'active' THEN
+        RAISE EXCEPTION 'only active sprints can be completed';
+    END IF;
+
+    -- Done column: explicit is_done marker first, highest position only as
+    -- a legacy fallback (mirrors the desktop client and the Rust server).
+    SELECT id INTO v_done_column_id
+    FROM board_columns
+    WHERE board_id = v_board_id
+    ORDER BY is_done DESC, position DESC
+    LIMIT 1;
+
+    -- Send incomplete issues back to the backlog.
+    UPDATE issues
+    SET sprint_id = NULL
+    WHERE sprint_id = p_sprint_id
+      AND (v_done_column_id IS NULL OR column_id <> v_done_column_id);
+
+    -- The status predicate makes concurrent completes safe: the second
+    -- caller matches zero rows and errors instead of double-completing.
+    UPDATE sprints
+    SET status = 'completed', end_date = now()
+    WHERE id = p_sprint_id AND status = 'active'
+    RETURNING * INTO v_sprint;
+
+    IF v_sprint.id IS NULL THEN
+        RAISE EXCEPTION 'sprint was completed concurrently';
+    END IF;
+
+    RETURN v_sprint;
+END;
+$$;
+
+-- Issue keys ("PROJ-42") are allocated by atomically bumping the board's
+-- issue_counter. The Rust server does this inside its own transaction and
+-- supplies issue_key explicitly; the Supabase-direct client path cannot, so
+-- this trigger fills the key for any INSERT that omits it — without it every
+-- client-side createIssue violates the NOT NULL constraint.
+CREATE OR REPLACE FUNCTION public.assign_issue_key()
+RETURNS TRIGGER
+LANGUAGE plpgsql SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+    v_counter INTEGER;
+    v_board_key TEXT;
+BEGIN
+    IF NEW.issue_key IS NULL OR NEW.issue_key = '' THEN
+        -- The UPDATE row-locks the board, serialising concurrent inserts so
+        -- two issues can never share a counter value.
+        UPDATE boards
+        SET issue_counter = issue_counter + 1
+        WHERE id = NEW.board_id
+        RETURNING issue_counter, key INTO v_counter, v_board_key;
+
+        IF v_counter IS NULL THEN
+            RAISE EXCEPTION 'board not found for issue';
+        END IF;
+
+        NEW.issue_key := v_board_key || '-' || v_counter;
+    END IF;
+    RETURN NEW;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS issues_assign_key ON issues;
+CREATE TRIGGER issues_assign_key
+BEFORE INSERT ON issues
+FOR EACH ROW EXECUTE FUNCTION public.assign_issue_key();
+
 -- Lock function execution down to signed-in users.
 REVOKE ALL ON FUNCTION public.join_team_with_code(TEXT) FROM anon, public;
 REVOKE ALL ON FUNCTION public.move_issue_on_board(UUID, UUID, INTEGER) FROM anon, public;
 REVOKE ALL ON FUNCTION public.start_sprint_atomic(UUID) FROM anon, public;
+REVOKE ALL ON FUNCTION public.complete_sprint_atomic(UUID) FROM anon, public;
+REVOKE ALL ON FUNCTION public.assign_issue_key() FROM anon, public;
 GRANT EXECUTE ON FUNCTION public.join_team_with_code(TEXT) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.move_issue_on_board(UUID, UUID, INTEGER) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.start_sprint_atomic(UUID) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.complete_sprint_atomic(UUID) TO authenticated;

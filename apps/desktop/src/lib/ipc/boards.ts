@@ -715,46 +715,14 @@ export async function startSprint(sprintId: string): Promise<Sprint> {
 }
 
 export async function completeSprint(sprintId: string): Promise<Sprint> {
-  // Mirror the server: incomplete issues (everything outside the rightmost
-  // "Done" column) go back to the backlog instead of staying attached to a
-  // completed sprint where no filter will ever show them.
-  const { data: sprint, error: sprintError } = await supabase
-    .from('sprints')
-    .select('board_id')
-    .eq('id', sprintId)
-    .single();
-
-  if (sprintError) throw new Error(sprintError.message);
-
-  // The Done column carries an explicit is_done marker; highest position is
-  // only a fallback for legacy boards (users can append columns after Done).
-  const { data: doneColumn, error: doneError } = await supabase
-    .from('board_columns')
-    .select('id')
-    .eq('board_id', sprint.board_id)
-    .order('is_done', { ascending: false })
-    .order('position', { ascending: false })
-    .limit(1)
-    .maybeSingle();
-
-  if (doneError) throw new Error(doneError.message);
-
-  let backlogQuery = supabase
-    .from('issues')
-    .update({ sprint_id: null })
-    .eq('sprint_id', sprintId);
-  if (doneColumn) {
-    backlogQuery = backlogQuery.neq('column_id', doneColumn.id);
-  }
-  const { error: backlogError } = await backlogQuery;
-  if (backlogError) throw new Error(backlogError.message);
-
-  const { data, error } = await supabase
-    .from('sprints')
-    .update({ status: 'completed', end_date: new Date().toISOString() })
-    .eq('id', sprintId)
-    .select()
-    .single();
+  // Atomic RPC: the active-status guard, the move of incomplete issues back
+  // to the backlog (everything outside the "Done" column), and the
+  // completion update run in one transaction. A mid-way failure can no
+  // longer strand an active sprint whose issues were already detached, and
+  // planned/completed sprints are rejected instead of silently completed.
+  const { data, error } = await supabase.rpc('complete_sprint_atomic', {
+    p_sprint_id: sprintId,
+  });
 
   if (error) throw new Error(error.message);
   return mapSprint(data);
@@ -817,6 +785,9 @@ export async function createIssue(boardId: string, input: CreateIssueInput): Pro
   if (maxError) throw new Error(maxError.message);
   const position = maxRow ? maxRow.position + 1 : 0;
 
+  // issue_key is intentionally omitted: the BEFORE INSERT trigger
+  // `issues_assign_key` bumps boards.issue_counter under a row lock and
+  // fills "<BOARD-KEY>-<n>" atomically (see 0002_boards_rls.sql).
   const { error } = await supabase
     .from('issues')
     .insert({
