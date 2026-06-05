@@ -27,7 +27,7 @@ test.describe('desktop app flow', () => {
 
     await page.getByTestId('analyze-project').click();
     await expect(page.getByTestId('project-status')).toHaveText('ready');
-    await expect(page.getByTestId('analysis-status')).toHaveText('9 chunks');
+    await expect(page.getByTestId('analysis-status')).toHaveText('9 chunks · 4 parsed');
 
     const testPlanButton = page.getByRole('button', { name: 'Test plan' });
     await expect(testPlanButton).toBeEnabled();
@@ -36,7 +36,7 @@ test.describe('desktop app flow', () => {
     await expect(page.getByText('Test Plan - express-api')).toBeVisible();
 
     await page.getByRole('button', { name: 'Open Test Plan - express-api' }).click();
-    const drawer = page.getByRole('dialog', { name: 'Review Test Plan - express-api' });
+    const drawer = page.getByRole('dialog', { name: 'Test Plan - express-api' });
     await expect(drawer).toBeVisible();
     await expect(drawer.getByText('Covers the express-api auth and health flows.')).toBeVisible();
 
@@ -89,7 +89,7 @@ test.describe('desktop app flow', () => {
     await expect(page.getByText('Test Cases - express-api')).toBeVisible();
     await page.getByRole('button', { name: 'Open Test Cases - express-api' }).click();
 
-    const drawer = page.getByRole('dialog', { name: 'Review Test Cases - express-api' });
+    const drawer = page.getByRole('dialog', { name: 'Test Cases - express-api' });
     await expect(drawer).toBeVisible();
 
     // Opt-in is on, so the Run button is enabled.
