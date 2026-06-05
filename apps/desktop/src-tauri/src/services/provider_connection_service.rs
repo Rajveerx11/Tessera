@@ -15,7 +15,7 @@ use sqlx::SqlitePool;
 use crate::config::AppConfig;
 use crate::error::AppResult;
 use crate::providers::factory::ProviderKind;
-use crate::providers::llm::{anthropic, openai, openrouter};
+use crate::providers::llm::{anthropic, gemini, openai, openrouter};
 use crate::repositories::provider_config_repo;
 use crate::services::provider_config_service;
 use crate::utils::crypto::CryptoKey;
@@ -197,6 +197,7 @@ fn default_base_url_for(kind: ProviderKind, cfg: &AppConfig) -> String {
         ProviderKind::OpenAi => openai::DEFAULT_BASE_URL.to_string(),
         ProviderKind::OpenRouter => openrouter::DEFAULT_BASE_URL.to_string(),
         ProviderKind::Anthropic => anthropic::DEFAULT_BASE_URL.to_string(),
+        ProviderKind::Gemini => gemini::DEFAULT_BASE_URL.to_string(),
     };
 
     provider_config_service::normalize_base_url(kind, &default_url)
@@ -284,6 +285,31 @@ async fn fetch_models(
             let response: AnthropicModelListResponse =
                 fetch_json(client, &build_url(&args.base_url, "/v1/models"), headers).await?;
             Ok(response.data.into_iter().map(|model| model.id).collect())
+        }
+        ProviderKind::Gemini => {
+            let mut headers = HeaderMap::new();
+            insert_bearer_auth(
+                &mut headers,
+                args.api_key
+                    .as_deref()
+                    .ok_or_else(|| "API key not configured for this provider.".to_string())?,
+            )?;
+            let url = build_url(
+                &args.base_url,
+                &format!("{}/models", gemini::OPENAI_COMPAT_PATH),
+            );
+            let response: OpenAiModelListResponse = fetch_json(client, &url, headers).await?;
+            // The compatibility endpoint returns fully-qualified ids
+            // (`models/gemini-2.5-flash`); strip the prefix so the list
+            // matches the bare model names used on chat requests.
+            Ok(response
+                .data
+                .into_iter()
+                .map(|model| match model.id.strip_prefix("models/") {
+                    Some(bare) => bare.to_string(),
+                    None => model.id,
+                })
+                .collect())
         }
     }
 }
@@ -540,6 +566,51 @@ mod tests {
 
         assert!(result.ok);
         assert_eq!(result.models, vec!["claude-sonnet-4-20250514".to_string()]);
+        mock.assert_async().await;
+
+        pool.close().await;
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_connection_parses_gemini_model_list_and_strips_prefix() {
+        let path = tmp_db();
+        let pool = init_pool_at(&path).await.expect("pool");
+        let mut server = mockito::Server::new_async().await;
+
+        let mock = server
+            .mock("GET", "/v1beta/openai/models")
+            .match_header("authorization", "Bearer AIza-123")
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(
+                r#"{"data":[{"id":"models/gemini-2.5-flash"},{"id":"models/gemini-2.5-pro"}]}"#,
+            )
+            .create_async()
+            .await;
+
+        let result = test_connection(
+            &pool,
+            &test_key(),
+            &test_config(),
+            ProviderConnectionTestArgs {
+                provider: "gemini".into(),
+                api_key: Some("AIza-123".into()),
+                base_url: Some(server.url()),
+                default_model: Some("gemini-2.5-flash".into()),
+            },
+        )
+        .await
+        .expect("result");
+
+        assert!(result.ok);
+        assert_eq!(
+            result.models,
+            vec![
+                "gemini-2.5-flash".to_string(),
+                "gemini-2.5-pro".to_string()
+            ]
+        );
         mock.assert_async().await;
 
         pool.close().await;

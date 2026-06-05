@@ -47,6 +47,13 @@ export const ProviderConfigSchema = z.discriminatedUnion('provider', [
     defaultModel: z.string().min(1),
     isActive: z.boolean().optional(),
   }),
+  z.object({
+    provider: z.literal('gemini'),
+    apiKey: z.string().optional(),
+    baseUrl: OptionalUrlSchema.optional(),
+    defaultModel: z.string().min(1),
+    isActive: z.boolean().optional(),
+  }),
 ]);
 
 export type ProviderConfig = z.infer<typeof ProviderConfigSchema>;

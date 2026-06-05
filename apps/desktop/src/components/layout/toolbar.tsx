@@ -1,5 +1,5 @@
 import type { Project } from '@testing-ide/shared';
-import { Clock, FolderOpen, Loader2, Settings, Trash } from 'lucide-react';
+import { Clock, FolderOpen, Loader2, Settings, Trash, LayoutDashboard, Code } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState, type KeyboardEvent } from 'react';
 
 import { Button } from '@/components/ui/button';
@@ -9,6 +9,7 @@ import { useEditorStore } from '@/stores/editor-store';
 import { toast } from '@/stores/toast-store';
 import { useUiStore } from '@/stores/ui-store';
 import { useWorkspaceStore } from '@/stores/workspace-store';
+import { useBoardStore } from '@/stores/board-store';
 
 /**
  * Top toolbar above the three-panel workspace. Hosts the "Open folder"
@@ -18,6 +19,9 @@ import { useWorkspaceStore } from '@/stores/workspace-store';
  */
 export function Toolbar() {
   const setSettingsOpen = useUiStore((s) => s.setSettingsOpen);
+  const mode = useUiStore((s) => s.mode);
+  const setMode = useUiStore((s) => s.setMode);
+  const connected = useBoardStore((s) => s.connected);
   const project = useWorkspaceStore((s) => s.project);
   const setProject = useWorkspaceStore((s) => s.setProject);
   const updateProject = useWorkspaceStore((s) => s.updateProject);
@@ -153,7 +157,6 @@ export function Toolbar() {
     }
   }, [analysisState]);
 
-  console.log("DEBUG: Toolbar rendering, project is:", project);
   return (
     <header className="flex h-8 shrink-0 items-center justify-between border-b border-border bg-card px-3">
       <div className="flex min-w-0 items-center gap-2.5">
@@ -179,6 +182,40 @@ export function Toolbar() {
         ) : null}
       </div>
       <div className="flex items-center gap-1">
+        {mode === 'boards' && (
+          <div className="flex items-center gap-1.5 px-2 text-xs border-r border-border mr-1 h-5">
+            <span
+              className={`size-2 rounded-full ${
+                connected ? 'bg-emerald-500 animate-pulse' : 'bg-destructive'
+              }`}
+              title={connected ? 'Connected to Boards server' : 'Disconnected from Boards server'}
+            />
+            <span className="text-muted-foreground text-[10px] font-mono select-none">
+              {connected ? 'Sync Connected' : 'Sync Offline'}
+            </span>
+          </div>
+        )}
+        {mode === 'code' ? (
+          <Button
+            type="button"
+            size="sm"
+            variant="ghost"
+            onClick={() => setMode('boards')}
+          >
+            <LayoutDashboard className="size-4" />
+            Boards
+          </Button>
+        ) : (
+          <Button
+            type="button"
+            size="sm"
+            variant="ghost"
+            onClick={() => setMode('code')}
+          >
+            <Code className="size-4" />
+            Code Editor
+          </Button>
+        )}
         <RecentProjectsButton
           activeId={project?.id ?? null}
           onSelect={(p) => loadProject(p, { skipAnalysisIfReady: true })}
