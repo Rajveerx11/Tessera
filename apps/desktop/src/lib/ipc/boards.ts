@@ -202,6 +202,21 @@ export async function serverRegister(
   if (!data.session) {
     throw new Error('Registration successful! Please check your email or log in.');
   }
+
+  // signUp only creates a row in auth.users — public.users must be populated
+  // explicitly or every issue/comment JOIN against users will fail for this
+  // account. Upsert keeps this idempotent across retries.
+  if (data.user) {
+    const { error: profileError } = await supabase.from('users').upsert({
+      id: data.user.id,
+      email,
+      display_name: name || email.split('@')[0],
+    });
+    if (profileError) {
+      throw new Error(`Failed to create user profile: ${profileError.message}`);
+    }
+  }
+
   return {
     accessToken: data.session.access_token,
     refreshToken: data.session.refresh_token,
@@ -283,7 +298,11 @@ export async function createTeam(input: CreateTeamInput): Promise<Team> {
   if (!user) throw new Error('Not authenticated');
 
   const teamId = crypto.randomUUID();
-  const inviteCode = Math.random().toString(36).substring(2, 8).toUpperCase();
+  // CSPRNG — Math.random() codes are guessable by brute force.
+  const inviteCode = Array.from(crypto.getRandomValues(new Uint8Array(4)))
+    .map((b) => b.toString(16).padStart(2, '0'))
+    .join('')
+    .toUpperCase();
 
   const { data: team, error: teamError } = await supabase
     .from('teams')
@@ -551,6 +570,18 @@ export async function reorderColumns(
   boardId: string,
   columnIds: string[],
 ): Promise<BoardColumn[]> {
+  // Two passes: parallel single-row updates would collide with the
+  // UNIQUE (board_id, position) constraint. First park every column on a
+  // scratch offset above the live range, then assign the final positions.
+  const scratchUpdates = columnIds.map((id, index) =>
+    supabase
+      .from('board_columns')
+      .update({ position: columnIds.length + index })
+      .eq('id', id)
+      .eq('board_id', boardId)
+  );
+  await Promise.all(scratchUpdates);
+
   const updates = columnIds.map((id, index) =>
     supabase
       .from('board_columns')

@@ -81,20 +81,28 @@ export class BoardWebSocket {
   private open(): void {
     if (!this.serverUrl || !this.boardId) return;
 
-    // Convert http(s) to ws(s)
+    // Convert http(s) to ws(s). The token is deliberately NOT a query
+    // parameter — URLs end up in access logs, history, and Referer headers.
+    // Auth happens via the first message after the connection opens.
     const wsBase = this.serverUrl.replace(/^http/, 'ws');
-    const url = `${wsBase}/ws/boards/${this.boardId}?token=${encodeURIComponent(this.token ?? '')}`;
+    const url = `${wsBase}/ws/boards/${this.boardId}`;
 
     this.ws = new WebSocket(url);
 
     this.ws.onopen = () => {
       // Reset backoff on successful connection
       this.reconnectDelay = MIN_RECONNECT_MS;
+      // First-message auth: the server closes the socket unless this arrives
+      // within its auth timeout.
+      this.ws?.send(JSON.stringify({ type: 'auth', token: this.token ?? '' }));
     };
 
     this.ws.onmessage = (msg) => {
       try {
         const event: WsEvent = JSON.parse(msg.data as string);
+        if ((event as { type?: string }).type === 'auth_ok') {
+          return; // Handshake ack, not a board event
+        }
         for (const handler of this.handlers) {
           handler(event);
         }
