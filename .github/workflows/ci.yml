@@ -160,6 +160,30 @@ jobs:
       - name: Run unit tests
         run: pnpm test
 
+  server-check:
+    name: server-check
+    # The boards server (apps/server) is a standalone Rust crate outside the
+    # desktop Tauri crate, so the desktop lint/test jobs never compile it.
+    # It uses runtime sqlx queries only (no `query!` macros), so clippy and
+    # the unit tests need no database or DATABASE_URL to build.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: apps/server
+
+      - name: Run cargo clippy (server)
+        run: cargo clippy --manifest-path apps/server/Cargo.toml --locked --all-targets -- -D warnings
+
+      - name: Run cargo test (server)
+        run: cargo test --manifest-path apps/server/Cargo.toml --locked
+
   e2e-test:
     name: e2e-test
     # Playwright E2E against the Vite dev server with a mocked Tauri IPC
