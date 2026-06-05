@@ -11,6 +11,7 @@ import { useUiStore, type PanelSizes } from '@/stores/ui-store';
 
 import { StatusBar } from '@/components/layout/status-bar';
 import { Toolbar } from '@/components/layout/toolbar';
+import { BoardPanel } from '@/components/boards/board-panel';
 
 type Props = {
   sidebar: ReactNode;
@@ -33,6 +34,7 @@ type Props = {
 export function AppShell({ sidebar, editor, aiPanel }: Props) {
   const panelSizes = useUiStore((s) => s.panelSizes);
   const setPanelSizes = useUiStore((s) => s.setPanelSizes);
+  const mode = useUiStore((s) => s.mode);
 
   const sidebarRef = useRef<ImperativePanelHandle | null>(null);
   const aiPanelRef = useRef<ImperativePanelHandle | null>(null);
@@ -67,33 +69,37 @@ export function AppShell({ sidebar, editor, aiPanel }: Props) {
     <div className="bg-background text-foreground flex h-screen w-screen flex-col overflow-hidden">
       <Toolbar />
       <div className="flex-1 overflow-hidden">
-        <PanelGroup direction="horizontal" onLayout={handleLayout}>
-          <Panel
-            ref={sidebarRef}
-            defaultSize={panelSizes[0]}
-            minSize={12}
-            collapsible
-            collapsedSize={0}
-            className="bg-card flex flex-col"
-          >
-            {sidebar}
-          </Panel>
-          <ResizeHandle />
-          <Panel defaultSize={panelSizes[1]} minSize={30} className="bg-background flex flex-col">
-            {editor}
-          </Panel>
-          <ResizeHandle />
-          <Panel
-            ref={aiPanelRef}
-            defaultSize={panelSizes[2]}
-            minSize={18}
-            collapsible
-            collapsedSize={0}
-            className="bg-card flex flex-col"
-          >
-            {aiPanel}
-          </Panel>
-        </PanelGroup>
+        {mode === 'boards' ? (
+          <BoardPanel />
+        ) : (
+          <PanelGroup direction="horizontal" onLayout={handleLayout}>
+            <Panel
+              ref={sidebarRef}
+              defaultSize={panelSizes[0]}
+              minSize={12}
+              collapsible
+              collapsedSize={0}
+              className="bg-card flex flex-col"
+            >
+              {sidebar}
+            </Panel>
+            <ResizeHandle />
+            <Panel defaultSize={panelSizes[1]} minSize={30} className="bg-background flex flex-col">
+              {editor}
+            </Panel>
+            <ResizeHandle />
+            <Panel
+              ref={aiPanelRef}
+              defaultSize={panelSizes[2]}
+              minSize={18}
+              collapsible
+              collapsedSize={0}
+              className="bg-card flex flex-col"
+            >
+              {aiPanel}
+            </Panel>
+          </PanelGroup>
+        )}
       </div>
       <StatusBar />
     </div>
