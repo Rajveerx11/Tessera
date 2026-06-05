@@ -192,9 +192,16 @@ WIP off master.
       failure messages before DB persistence.
 
 ### Phase 4 — Coverage parse + storage
-- [ ] Parse istanbul coverage + vitest results (§8).
-- [ ] Persist cases + coverage; expose via `RunResult`.
-- [ ] Unit-test parsers against captured fixture JSON (no Docker).
+- [x] Parse istanbul coverage + vitest results (§8). Coverage now dedupes
+      multiple statements per `(file, line)` taking max hits; vitest results
+      carry `source_line` from the reporter `location` (config gains
+      `includeTaskLocation: true`).
+- [x] Persist cases + coverage; expose via `RunResult` (landed Phase 2 via
+      `test_run_repo`; source-line now populated end to end).
+- [x] Unit-test parsers against captured fixture JSON (no Docker) —
+      `fixtures/vitest-report.json` + `fixtures/istanbul-coverage.json`.
+- Branch coverage deferred: `CoverageLine` models line hits only; adding
+  branches is an FE/BE contract change (own slice), out of this phase.
 
 ### Phase 5 — Frontend
 - [ ] Opt-in setting (off by default) in settings UI; persisted.

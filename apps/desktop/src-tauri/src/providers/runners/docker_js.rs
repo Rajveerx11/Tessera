@@ -13,8 +13,11 @@
 //! - **Phase 3 (security gate):** verify `--network none`, wire a real
 //!   cancellation token through to `docker kill`, and add a Docker-gated
 //!   integration test that actually starts a container.
-//! - **Phase 4:** richer istanbul/vitest mapping (source lines, branch
-//!   coverage) against captured fixture JSON.
+//! - **Phase 4 (done):** source-line mapping from the vitest reporter
+//!   `location`, per-line coverage de-duplication (max hits across the
+//!   statements on a line), and fixture-backed parser tests
+//!   (`fixtures/*.json`). Branch coverage stays out — `CoverageLine` models
+//!   line hits only; adding branches is a separate contract change.
 //!
 //! The container is deliberately given a non-routable workspace mount and
 //! `--network none`: code under test can neither phone home nor reach the
@@ -305,12 +308,14 @@ const PACKAGE_JSON: &str = r#"{
 }
 "#;
 
-/// Vitest config enabling JSON coverage. Kept minimal; Phase 4 may extend
-/// the coverage reporter set.
+/// Vitest config enabling JSON coverage. `includeTaskLocation` makes the
+/// JSON reporter emit each assertion's source `location` (line/column) so
+/// the editor can anchor a failing test to its line (§8).
 const VITEST_CONFIG: &str = r"import { defineConfig } from 'vitest/config';
 
 export default defineConfig({
   test: {
+    includeTaskLocation: true,
     coverage: {
       provider: 'istanbul',
       enabled: true,
@@ -352,6 +357,19 @@ struct VitestAssertion {
     #[serde(default)]
     #[serde(rename = "failureMessages")]
     failure_messages: Vec<String>,
+    /// Source location of the test, emitted by the reporter only when
+    /// `includeTaskLocation` is on (see [`VITEST_CONFIG`]). Absent on older
+    /// reporters or skipped-without-location cases → `source_line` stays
+    /// `None`.
+    #[serde(default)]
+    location: Option<VitestLocation>,
+}
+
+/// `{ line, column }` of a test in its spec file. Only `line` is consumed.
+#[derive(Debug, Deserialize)]
+struct VitestLocation {
+    #[serde(default)]
+    line: u32,
 }
 
 /// Parse the vitest JSON reporter output into [`TestResult`]s.
@@ -389,13 +407,15 @@ pub fn parse_vitest_results(json: &str) -> Result<Vec<TestResult>, RunnerError> 
                 .duration
                 .filter(|d| d.is_finite() && *d >= 0.0)
                 .map_or(0, f64_to_u32);
+            // 1-based line of the test in its spec; drop a 0/absent location
+            // so a missing anchor stays `None` rather than line 0 (§8).
+            let source_line = assertion.location.map(|loc| loc.line).filter(|line| *line > 0);
             tests.push(TestResult {
                 name,
                 status,
                 duration_ms,
                 failure_message,
-                // Source-line mapping lands in Phase 4 (§8).
-                source_line: None,
+                source_line,
             });
         }
     }
@@ -405,9 +425,12 @@ pub fn parse_vitest_results(json: &str) -> Result<Vec<TestResult>, RunnerError> 
 /// Flatten an istanbul `coverage-final.json` into per-line hit counts.
 ///
 /// Each file carries a `statementMap` (id → location) and `s` (id → hit
-/// count). We emit one [`CoverageLine`] per statement using its start
-/// line; Phase 4 dedupes multiple statements on a line and adds branch
-/// coverage.
+/// count). A single source line often holds several statements, so we
+/// aggregate by `(file, line)`: the line's hit count is the **max** over
+/// its statements (the number of times the line executed), and a line is
+/// reported uncovered (`hits == 0`) only when every statement on it has
+/// zero hits. Output is sorted by file then line (`BTreeMap` order),
+/// matching the read-back ordering in `test_run_repo::fetch_run`.
 ///
 /// # Errors
 ///
@@ -416,22 +439,26 @@ pub fn parse_istanbul_coverage(json: &str) -> Result<Vec<CoverageLine>, RunnerEr
     let root: std::collections::BTreeMap<String, IstanbulFile> = serde_json::from_str(json)
         .map_err(|e| RunnerError::Parse(format!("istanbul coverage: {e}")))?;
 
-    let mut lines = Vec::new();
+    let mut by_line: std::collections::BTreeMap<(String, u32), u32> =
+        std::collections::BTreeMap::new();
     for (file_path, file) in root {
         for (id, location) in file.statement_map {
-            let hits = file.s.get(&id).copied().unwrap_or(0);
             let line = location.start.line;
             if line == 0 {
                 continue;
             }
-            lines.push(CoverageLine {
-                file_path: file_path.clone(),
-                line,
-                hits,
-            });
+            let hits = file.s.get(&id).copied().unwrap_or(0);
+            by_line
+                .entry((file_path.clone(), line))
+                .and_modify(|h| *h = (*h).max(hits))
+                .or_insert(hits);
         }
     }
-    Ok(lines)
+
+    Ok(by_line
+        .into_iter()
+        .map(|((file_path, line), hits)| CoverageLine { file_path, line, hits })
+        .collect())
 }
 
 #[derive(Debug, Deserialize)]
@@ -573,6 +600,57 @@ mod tests {
         // No fullName → falls back to title.
         assert_eq!(tests[2].name, "todo later");
         assert_eq!(tests[2].status, TestStatus::Skipped);
+
+        // No `location` in this payload → source line stays None.
+        assert!(tests.iter().all(|t| t.source_line.is_none()));
+    }
+
+    #[test]
+    fn parse_vitest_results_fixture_maps_locations_and_statuses() {
+        let json = include_str!("fixtures/vitest-report.json");
+        let tests = parse_vitest_results(json).expect("parse fixture");
+        assert_eq!(tests.len(), 4);
+
+        assert_eq!(tests[0].name, "add > adds two positive numbers");
+        assert_eq!(tests[0].status, TestStatus::Passed);
+        assert_eq!(tests[0].duration_ms, 3);
+        assert_eq!(tests[0].source_line, Some(5)); // anchored from `location`
+
+        assert_eq!(tests[1].status, TestStatus::Passed);
+        assert_eq!(tests[1].source_line, Some(9));
+
+        assert_eq!(tests[2].status, TestStatus::Failed);
+        assert_eq!(tests[2].source_line, Some(13));
+        assert!(
+            tests[2]
+                .failure_message
+                .as_deref()
+                .expect("failure message")
+                .contains("expected NaN")
+        );
+
+        assert_eq!(tests[3].status, TestStatus::Skipped);
+        assert_eq!(tests[3].source_line, Some(18));
+    }
+
+    #[test]
+    fn parse_istanbul_coverage_fixture_dedupes_lines_by_max_hits() {
+        let json = include_str!("fixtures/istanbul-coverage.json");
+        let coverage = parse_istanbul_coverage(json).expect("parse fixture");
+
+        // 4 statements across 3 distinct lines → 3 deduped entries, already
+        // sorted by file then line (BTreeMap order).
+        assert_eq!(coverage.len(), 3);
+        assert!(coverage.iter().all(|c| c.file_path == "/work/src/add.ts"));
+
+        assert_eq!(coverage[0].line, 1);
+        assert_eq!(coverage[0].hits, 5);
+        // Line 2 carries two statements (hits 5 and 0) → max wins.
+        assert_eq!(coverage[1].line, 2);
+        assert_eq!(coverage[1].hits, 5);
+        // Line 3 has a single uncovered statement → preserved as 0.
+        assert_eq!(coverage[2].line, 3);
+        assert_eq!(coverage[2].hits, 0);
     }
 
     #[test]
