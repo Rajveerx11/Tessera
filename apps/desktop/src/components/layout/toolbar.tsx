@@ -157,7 +157,6 @@ export function Toolbar() {
     }
   }, [analysisState]);
 
-  console.log("DEBUG: Toolbar rendering, project is:", project);
   return (
     <header className="flex h-8 shrink-0 items-center justify-between border-b border-border bg-card px-3">
       <div className="flex min-w-0 items-center gap-2.5">

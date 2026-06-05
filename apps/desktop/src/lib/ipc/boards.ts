@@ -21,7 +21,7 @@ import type {
   ActivityLog,
 } from '@testing-ide/shared';
 
-import { supabase } from '@/lib/supabase';
+import { getSupabase } from '@/lib/supabase';
 
 // ─── Server URL management (NOP / Dummy for backward compatibility) ────
 
@@ -189,7 +189,7 @@ export async function serverRegister(
   password: string,
   name?: string,
 ): Promise<{ accessToken: string; refreshToken: string }> {
-  const { data, error } = await supabase.auth.signUp({
+  const { data, error } = await getSupabase().auth.signUp({
     email,
     password,
     options: {
@@ -212,7 +212,7 @@ export async function serverLogin(
   email: string,
   password: string,
 ): Promise<{ accessToken: string; refreshToken: string }> {
-  const { data, error } = await supabase.auth.signInWithPassword({
+  const { data, error } = await getSupabase().auth.signInWithPassword({
     email,
     password,
   });
@@ -227,7 +227,7 @@ export async function serverLogin(
 export async function serverRefreshToken(
   refreshToken: string,
 ): Promise<{ accessToken: string; refreshToken: string }> {
-  const { data, error } = await supabase.auth.refreshSession({
+  const { data, error } = await getSupabase().auth.refreshSession({
     refresh_token: refreshToken,
   });
   if (error) throw new Error(error.message);
@@ -239,10 +239,10 @@ export async function serverRefreshToken(
 }
 
 export async function serverGetMe(): Promise<BoardUser> {
-  const { data: { user }, error } = await supabase.auth.getUser();
+  const { data: { user }, error } = await getSupabase().auth.getUser();
   if (error || !user) throw new Error(error?.message || 'Not authenticated');
 
-  const { data: profile } = await supabase
+  const { data: profile } = await getSupabase()
     .from('users')
     .select('*')
     .eq('id', user.id)
@@ -263,10 +263,10 @@ export async function serverGetMe(): Promise<BoardUser> {
 // ─── Teams ───────────────────────────────────────────────────────────
 
 export async function fetchTeams(): Promise<Team[]> {
-  const { data: { user } } = await supabase.auth.getUser();
+  const { data: { user } } = await getSupabase().auth.getUser();
   if (!user) throw new Error('Not authenticated');
 
-  const { data, error } = await supabase
+  const { data, error } = await getSupabase()
     .from('team_members')
     .select('teams(*)')
     .eq('user_id', user.id);
@@ -279,13 +279,13 @@ export async function fetchTeams(): Promise<Team[]> {
 }
 
 export async function createTeam(input: CreateTeamInput): Promise<Team> {
-  const { data: { user } } = await supabase.auth.getUser();
+  const { data: { user } } = await getSupabase().auth.getUser();
   if (!user) throw new Error('Not authenticated');
 
   const teamId = crypto.randomUUID();
   const inviteCode = Math.random().toString(36).substring(2, 8).toUpperCase();
 
-  const { data: team, error: teamError } = await supabase
+  const { data: team, error: teamError } = await getSupabase()
     .from('teams')
     .insert({
       id: teamId,
@@ -300,7 +300,7 @@ export async function createTeam(input: CreateTeamInput): Promise<Team> {
   if (teamError) throw new Error(teamError.message);
 
   // Add creator as team member
-  const { error: memberError } = await supabase
+  const { error: memberError } = await getSupabase()
     .from('team_members')
     .insert({
       id: crypto.randomUUID(),
@@ -310,7 +310,7 @@ export async function createTeam(input: CreateTeamInput): Promise<Team> {
     });
 
   if (memberError) {
-    await supabase.from('teams').delete().eq('id', teamId);
+    await getSupabase().from('teams').delete().eq('id', teamId);
     throw new Error(memberError.message);
   }
 
@@ -318,10 +318,10 @@ export async function createTeam(input: CreateTeamInput): Promise<Team> {
 }
 
 export async function joinTeam(inviteCode: string): Promise<TeamMember> {
-  const { data: { user } } = await supabase.auth.getUser();
+  const { data: { user } } = await getSupabase().auth.getUser();
   if (!user) throw new Error('Not authenticated');
 
-  const { data: team, error: teamError } = await supabase
+  const { data: team, error: teamError } = await getSupabase()
     .from('teams')
     .select('id')
     .eq('invite_code', inviteCode.trim().toUpperCase())
@@ -332,7 +332,7 @@ export async function joinTeam(inviteCode: string): Promise<TeamMember> {
   }
 
   const memberId = crypto.randomUUID();
-  const { data: member, error: memberError } = await supabase
+  const { data: member, error: memberError } = await getSupabase()
     .from('team_members')
     .insert({
       id: memberId,
@@ -354,7 +354,7 @@ export async function joinTeam(inviteCode: string): Promise<TeamMember> {
 }
 
 export async function fetchTeamMembers(teamId: string): Promise<TeamMember[]> {
-  const { data, error } = await supabase
+  const { data, error } = await getSupabase()
     .from('team_members')
     .select('*, users:user_id(*)')
     .eq('team_id', teamId);
@@ -364,7 +364,7 @@ export async function fetchTeamMembers(teamId: string): Promise<TeamMember[]> {
 }
 
 export async function removeTeamMember(teamId: string, memberId: string): Promise<void> {
-  const { error } = await supabase
+  const { error } = await getSupabase()
     .from('team_members')
     .delete()
     .eq('id', memberId)
@@ -378,7 +378,7 @@ export async function updateMemberRole(
   memberId: string,
   role: TeamRole,
 ): Promise<TeamMember> {
-  const { data, error } = await supabase
+  const { data, error } = await getSupabase()
     .from('team_members')
     .update({ role })
     .eq('id', memberId)
@@ -393,7 +393,7 @@ export async function updateMemberRole(
 // ─── Boards ──────────────────────────────────────────────────────────
 
 export async function fetchBoards(teamId: string): Promise<Board[]> {
-  const { data, error } = await supabase
+  const { data, error } = await getSupabase()
     .from('boards')
     .select('*')
     .eq('team_id', teamId)
@@ -406,7 +406,7 @@ export async function fetchBoards(teamId: string): Promise<Board[]> {
 export async function createBoard(teamId: string, input: CreateBoardInput): Promise<Board> {
   const boardId = crypto.randomUUID();
 
-  const { data: board, error: boardError } = await supabase
+  const { data: board, error: boardError } = await getSupabase()
     .from('boards')
     .insert({
       id: boardId,
@@ -429,12 +429,12 @@ export async function createBoard(teamId: string, input: CreateBoardInput): Prom
     { id: crypto.randomUUID(), board_id: boardId, name: 'Done', color: '#10b981', position: 3 },
   ];
 
-  const { error: colsError } = await supabase
+  const { error: colsError } = await getSupabase()
     .from('board_columns')
     .insert(defaultColumns);
 
   if (colsError) {
-    await supabase.from('boards').delete().eq('id', boardId);
+    await getSupabase().from('boards').delete().eq('id', boardId);
     throw new Error(colsError.message);
   }
 
@@ -442,7 +442,7 @@ export async function createBoard(teamId: string, input: CreateBoardInput): Prom
 }
 
 export async function fetchBoard(boardId: string): Promise<Board> {
-  const { data, error } = await supabase
+  const { data, error } = await getSupabase()
     .from('boards')
     .select('*')
     .eq('id', boardId)
@@ -456,7 +456,7 @@ export async function updateBoard(
   boardId: string,
   input: Partial<Pick<Board, 'name' | 'description'>>,
 ): Promise<Board> {
-  const { data, error } = await supabase
+  const { data, error } = await getSupabase()
     .from('boards')
     .update(input)
     .eq('id', boardId)
@@ -468,7 +468,7 @@ export async function updateBoard(
 }
 
 export async function deleteBoard(boardId: string): Promise<void> {
-  const { error } = await supabase
+  const { error } = await getSupabase()
     .from('boards')
     .delete()
     .eq('id', boardId);
@@ -479,7 +479,7 @@ export async function deleteBoard(boardId: string): Promise<void> {
 // ─── Columns ─────────────────────────────────────────────────────────
 
 export async function fetchColumns(boardId: string): Promise<BoardColumn[]> {
-  const { data, error } = await supabase
+  const { data, error } = await getSupabase()
     .from('board_columns')
     .select('*')
     .eq('board_id', boardId)
@@ -493,7 +493,7 @@ export async function createColumn(
   boardId: string,
   input: Pick<BoardColumn, 'name' | 'color'> & { wipLimit?: number },
 ): Promise<BoardColumn> {
-  const { data: cols } = await supabase
+  const { data: cols } = await getSupabase()
     .from('board_columns')
     .select('position')
     .eq('board_id', boardId)
@@ -502,7 +502,7 @@ export async function createColumn(
 
   const nextPos = (cols && cols.length > 0 && cols[0]?.position !== undefined) ? cols[0].position + 1 : 0;
 
-  const { data, error } = await supabase
+  const { data, error } = await getSupabase()
     .from('board_columns')
     .insert({
       id: crypto.randomUUID(),
@@ -523,7 +523,7 @@ export async function updateColumn(
   columnId: string,
   input: Partial<Pick<BoardColumn, 'name' | 'color' | 'wipLimit'>>,
 ): Promise<BoardColumn> {
-  const { data, error } = await supabase
+  const { data, error } = await getSupabase()
     .from('board_columns')
     .update({
       name: input.name,
@@ -539,7 +539,7 @@ export async function updateColumn(
 }
 
 export async function deleteColumn(columnId: string): Promise<void> {
-  const { error } = await supabase
+  const { error } = await getSupabase()
     .from('board_columns')
     .delete()
     .eq('id', columnId);
@@ -552,7 +552,7 @@ export async function reorderColumns(
   columnIds: string[],
 ): Promise<BoardColumn[]> {
   const updates = columnIds.map((id, index) =>
-    supabase
+    getSupabase()
       .from('board_columns')
       .update({ position: index })
       .eq('id', id)
@@ -566,7 +566,7 @@ export async function reorderColumns(
 // ─── Sprints ─────────────────────────────────────────────────────────
 
 export async function fetchSprints(boardId: string): Promise<Sprint[]> {
-  const { data, error } = await supabase
+  const { data, error } = await getSupabase()
     .from('sprints')
     .select('*')
     .eq('board_id', boardId)
@@ -577,7 +577,7 @@ export async function fetchSprints(boardId: string): Promise<Sprint[]> {
 }
 
 export async function createSprint(boardId: string, input: CreateSprintInput): Promise<Sprint> {
-  const { data, error } = await supabase
+  const { data, error } = await getSupabase()
     .from('sprints')
     .insert({
       id: crypto.randomUUID(),
@@ -599,7 +599,7 @@ export async function updateSprint(
   sprintId: string,
   input: Partial<Pick<Sprint, 'name' | 'goal' | 'startDate' | 'endDate'>>,
 ): Promise<Sprint> {
-  const { data, error } = await supabase
+  const { data, error } = await getSupabase()
     .from('sprints')
     .update({
       name: input.name,
@@ -616,7 +616,7 @@ export async function updateSprint(
 }
 
 export async function startSprint(sprintId: string): Promise<Sprint> {
-  const { data, error } = await supabase
+  const { data, error } = await getSupabase()
     .from('sprints')
     .update({ status: 'active', start_date: new Date().toISOString() })
     .eq('id', sprintId)
@@ -628,7 +628,7 @@ export async function startSprint(sprintId: string): Promise<Sprint> {
 }
 
 export async function completeSprint(sprintId: string): Promise<Sprint> {
-  const { data, error } = await supabase
+  const { data, error } = await getSupabase()
     .from('sprints')
     .update({ status: 'completed', end_date: new Date().toISOString() })
     .eq('id', sprintId)
@@ -645,7 +645,7 @@ export async function fetchIssues(
   boardId: string,
   params?: { sprintId?: string; columnId?: string },
 ): Promise<Issue[]> {
-  let query = supabase
+  let query = getSupabase()
     .from('issues')
     .select(`
       *,
@@ -679,12 +679,12 @@ export async function fetchIssues(
 }
 
 export async function createIssue(boardId: string, input: CreateIssueInput): Promise<Issue> {
-  const { data: { user } } = await supabase.auth.getUser();
+  const { data: { user } } = await getSupabase().auth.getUser();
   if (!user) throw new Error('Not authenticated');
 
   const issueId = crypto.randomUUID();
 
-  const { error } = await supabase
+  const { error } = await getSupabase()
     .from('issues')
     .insert({
       id: issueId,
@@ -711,7 +711,7 @@ export async function createIssue(boardId: string, input: CreateIssueInput): Pro
       issue_id: issueId,
       label_id: labelId,
     }));
-    const { error: labelsError } = await supabase
+    const { error: labelsError } = await getSupabase()
       .from('issue_labels')
       .insert(labelInserts);
     if (labelsError) throw new Error(labelsError.message);
@@ -721,7 +721,7 @@ export async function createIssue(boardId: string, input: CreateIssueInput): Pro
 }
 
 export async function fetchIssue(issueId: string): Promise<Issue> {
-  const { data, error } = await supabase
+  const { data, error } = await getSupabase()
     .from('issues')
     .select(`
       *,
@@ -750,7 +750,7 @@ export async function updateIssue(issueId: string, input: UpdateIssueInput): Pro
   if (input.storyPoints !== undefined) updatePayload.story_points = input.storyPoints;
   if (input.dueDate !== undefined) updatePayload.due_date = input.dueDate;
 
-  const { error } = await supabase
+  const { error } = await getSupabase()
     .from('issues')
     .update(updatePayload)
     .eq('id', issueId);
@@ -760,7 +760,7 @@ export async function updateIssue(issueId: string, input: UpdateIssueInput): Pro
 }
 
 export async function moveIssue(issueId: string, input: MoveIssueInput): Promise<Issue> {
-  const { error } = await supabase.rpc('move_issue_on_board', {
+  const { error } = await getSupabase().rpc('move_issue_on_board', {
     target_issue_id: issueId,
     new_column_id: input.columnId,
     new_position: input.position,
@@ -771,7 +771,7 @@ export async function moveIssue(issueId: string, input: MoveIssueInput): Promise
 }
 
 export async function deleteIssue(issueId: string): Promise<void> {
-  const { error } = await supabase
+  const { error } = await getSupabase()
     .from('issues')
     .delete()
     .eq('id', issueId);
@@ -782,7 +782,7 @@ export async function deleteIssue(issueId: string): Promise<void> {
 // ─── Comments ────────────────────────────────────────────────────────
 
 export async function fetchComments(issueId: string): Promise<Comment[]> {
-  const { data, error } = await supabase
+  const { data, error } = await getSupabase()
     .from('comments')
     .select('*, author:author_id(*)')
     .eq('issue_id', issueId)
@@ -793,11 +793,11 @@ export async function fetchComments(issueId: string): Promise<Comment[]> {
 }
 
 export async function createComment(issueId: string, input: CreateCommentInput): Promise<Comment> {
-  const { data: { user } } = await supabase.auth.getUser();
+  const { data: { user } } = await getSupabase().auth.getUser();
   if (!user) throw new Error('Not authenticated');
 
   const commentId = crypto.randomUUID();
-  const { data, error } = await supabase
+  const { data, error } = await getSupabase()
     .from('comments')
     .insert({
       id: commentId,
@@ -813,7 +813,7 @@ export async function createComment(issueId: string, input: CreateCommentInput):
 }
 
 export async function updateComment(commentId: string, body: string): Promise<Comment> {
-  const { data, error } = await supabase
+  const { data, error } = await getSupabase()
     .from('comments')
     .update({ body })
     .eq('id', commentId)
@@ -825,7 +825,7 @@ export async function updateComment(commentId: string, body: string): Promise<Co
 }
 
 export async function deleteComment(commentId: string): Promise<void> {
-  const { error } = await supabase
+  const { error } = await getSupabase()
     .from('comments')
     .delete()
     .eq('id', commentId);
@@ -836,7 +836,7 @@ export async function deleteComment(commentId: string): Promise<void> {
 // ─── Labels ──────────────────────────────────────────────────────────
 
 export async function fetchLabels(boardId: string): Promise<Label[]> {
-  const { data, error } = await supabase
+  const { data, error } = await getSupabase()
     .from('labels')
     .select('*')
     .eq('board_id', boardId)
@@ -847,7 +847,7 @@ export async function fetchLabels(boardId: string): Promise<Label[]> {
 }
 
 export async function createLabel(boardId: string, input: CreateLabelInput): Promise<Label> {
-  const { data, error } = await supabase
+  const { data, error } = await getSupabase()
     .from('labels')
     .insert({
       id: crypto.randomUUID(),
@@ -863,7 +863,7 @@ export async function createLabel(boardId: string, input: CreateLabelInput): Pro
 }
 
 export async function deleteLabel(labelId: string): Promise<void> {
-  const { error } = await supabase
+  const { error } = await getSupabase()
     .from('labels')
     .delete()
     .eq('id', labelId);
@@ -874,7 +874,7 @@ export async function deleteLabel(labelId: string): Promise<void> {
 // ─── Activity Logs ───────────────────────────────────────────────────
 
 export async function fetchActivityLogs(issueId: string): Promise<ActivityLog[]> {
-  const { data, error } = await supabase
+  const { data, error } = await getSupabase()
     .from('activity_logs')
     .select('*, users:user_id(*)')
     .eq('issue_id', issueId)

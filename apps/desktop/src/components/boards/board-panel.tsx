@@ -14,7 +14,7 @@ import { IssueDetailModal } from '@/components/boards/issue-detail-modal';
 import { IssueCreateModal } from '@/components/boards/issue-create-modal';
 import { TeamManagement } from '@/components/boards/team-management';
 import { BoardSettings } from '@/components/boards/board-settings';
-import { supabase } from '@/lib/supabase';
+import { getSupabase } from '@/lib/supabase';
 import { 
   createTeam, 
   joinTeam, 
@@ -70,7 +70,7 @@ export function BoardPanel() {
       if (token && refreshToken) {
         try {
           useBoardStore.setState({ connecting: true });
-          await supabase.auth.setSession({
+          await getSupabase().auth.setSession({
             access_token: token,
             refresh_token: refreshToken,
           });
@@ -116,7 +116,7 @@ export function BoardPanel() {
   // 1. Establish Supabase Realtime subscription when board ID or team ID changes
   useEffect(() => {
     if (activeBoardId) {
-      const channel = supabase
+      const channel = getSupabase()
         .channel(`board-changes:${activeBoardId}`)
         .on(
           'postgres_changes' as any,
@@ -198,7 +198,7 @@ export function BoardPanel() {
             const { addComment } = useBoardStore.getState();
             if (eventType === 'INSERT') {
               try {
-                const { data: dbComment } = await supabase
+                const { data: dbComment } = await getSupabase()
                   .from('comments')
                   .select('*, author:author_id(*)')
                   .eq('id', newRecord.id)
@@ -245,7 +245,7 @@ export function BoardPanel() {
 
             if (eventType === 'INSERT') {
               try {
-                const { data: dbMember } = await supabase
+                const { data: dbMember } = await getSupabase()
                   .from('team_members')
                   .select('*, users:user_id(*)')
                   .eq('id', newRecord.id)
@@ -284,7 +284,7 @@ export function BoardPanel() {
       useBoardStore.setState({ connected: true });
 
       return () => {
-        supabase.removeChannel(channel);
+        getSupabase().removeChannel(channel);
         useBoardStore.setState({ connected: false });
       };
     }
