@@ -185,7 +185,13 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Install Playwright Chromium + OS deps
+        # PLAYWRIGHT_BROWSERS_PATH=0 stores browsers in node_modules
+        # (.local-browsers), matching run-playwright-e2e.mjs at test time.
+        # Without it the binaries land in the global ~/.cache and the suite
+        # fails with "Executable doesn't exist at .../.local-browsers/...".
         run: pnpm --filter @testing-ide/desktop exec playwright install --with-deps chromium
+        env:
+          PLAYWRIGHT_BROWSERS_PATH: '0'
 
       - name: Run Playwright E2E suite
         run: pnpm --filter @testing-ide/desktop run test:e2e
