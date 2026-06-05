@@ -387,6 +387,7 @@ async fn drive_stream(
 ///     surfaces a clear "swap model" error.
 ///
 /// Returns the JSON string ready for `validate_tool_output`.
+#[allow(clippy::too_many_lines)]
 pub(crate) fn salvage_tool_args(text: &str, tool_name: &str) -> Option<String> {
     let raw = salvage_json_from_text(text)?;
     let mut parsed: serde_json::Value = serde_json::from_str(&raw).ok()?;
@@ -421,7 +422,7 @@ pub(crate) fn salvage_tool_args(text: &str, tool_name: &str) -> Option<String> {
                         let other_keys: Vec<&String> = obj.keys().filter(|k| k.as_str() != n_key).collect();
                         if other_keys.len() == 1 {
                             let key = other_keys[0];
-                            if obj.get(key).map(|v| v.is_object() || v.is_array()).unwrap_or(false) {
+                            if obj.get(key).is_some_and(|v| v.is_object() || v.is_array()) {
                                 payload_key = Some(key.as_str());
                             }
                         }
@@ -465,26 +466,23 @@ pub(crate) fn salvage_tool_args(text: &str, tool_name: &str) -> Option<String> {
     // 2. Object wrapping & field remapping
     if let Some(obj) = parsed.as_object_mut() {
         // If the model wrapped a single item directly in the root object
-        if tool_name == "emit_bug_report" && !obj.contains_key("bugs") {
-            if obj.contains_key("title") || obj.contains_key("id") || obj.contains_key("severity") {
-                let mut new_obj = serde_json::Map::new();
-                new_obj.insert("bugs".to_string(), serde_json::Value::Array(vec![serde_json::Value::Object(obj.clone())]));
-                *obj = new_obj;
-            }
+        if tool_name == "emit_bug_report" && !obj.contains_key("bugs")
+            && (obj.contains_key("title") || obj.contains_key("id") || obj.contains_key("severity")) {
+            let mut new_obj = serde_json::Map::new();
+            new_obj.insert("bugs".to_string(), serde_json::Value::Array(vec![serde_json::Value::Object(obj.clone())]));
+            *obj = new_obj;
         }
-        if tool_name == "emit_defect_report" && !obj.contains_key("findings") {
-            if obj.contains_key("title") || obj.contains_key("id") || obj.contains_key("severity") || obj.contains_key("category") {
-                let mut new_obj = serde_json::Map::new();
-                new_obj.insert("findings".to_string(), serde_json::Value::Array(vec![serde_json::Value::Object(obj.clone())]));
-                *obj = new_obj;
-            }
+        if tool_name == "emit_defect_report" && !obj.contains_key("findings")
+            && (obj.contains_key("title") || obj.contains_key("id") || obj.contains_key("severity") || obj.contains_key("category")) {
+            let mut new_obj = serde_json::Map::new();
+            new_obj.insert("findings".to_string(), serde_json::Value::Array(vec![serde_json::Value::Object(obj.clone())]));
+            *obj = new_obj;
         }
-        if tool_name == "emit_test_cases" && !obj.contains_key("cases") {
-            if obj.contains_key("title") || obj.contains_key("id") || obj.contains_key("steps") {
-                let mut new_obj = serde_json::Map::new();
-                new_obj.insert("cases".to_string(), serde_json::Value::Array(vec![serde_json::Value::Object(obj.clone())]));
-                *obj = new_obj;
-            }
+        if tool_name == "emit_test_cases" && !obj.contains_key("cases")
+            && (obj.contains_key("title") || obj.contains_key("id") || obj.contains_key("steps")) {
+            let mut new_obj = serde_json::Map::new();
+            new_obj.insert("cases".to_string(), serde_json::Value::Array(vec![serde_json::Value::Object(obj.clone())]));
+            *obj = new_obj;
         }
 
         // Strip extra wrapper keys around the expected payload structure
@@ -519,7 +517,7 @@ pub(crate) fn salvage_tool_args(text: &str, tool_name: &str) -> Option<String> {
                                     let file_hint = trace_obj.get("file_hint").and_then(|v| v.as_str()).unwrap_or("");
                                     let symbol = trace_obj.get("symbol").and_then(|v| v.as_str()).unwrap_or("");
                                     let trace_str = if !file_hint.is_empty() && !symbol.is_empty() {
-                                        format!("{}#{}", file_hint, symbol)
+                                        format!("{file_hint}#{symbol}")
                                     } else if !file_hint.is_empty() {
                                         file_hint.to_string()
                                     } else {
@@ -559,29 +557,38 @@ pub(crate) fn salvage_tool_args(text: &str, tool_name: &str) -> Option<String> {
                         else { category = v.to_string(); }
                     } else if k_lower != "key_modules" && k_lower != "data_flows" && k_lower != "known_risks" {
                         let v_str = if let Some(s) = v.as_str() { s.to_string() } else { v.to_string() };
-                        other_notes.push(format!("* {}: {}", k, v_str));
+                        other_notes.push(format!("* {k}: {v_str}"));
                     }
                 }
 
-                let salvaged_summary = if !has_summary {
-                    let mut s = String::new();
-                    if !title.is_empty() { s.push_str(&format!("Project: {}. ", title)); }
-                    if !category.is_empty() { s.push_str(&format!("Category: {}. ", category)); }
-                    if !description.is_empty() { s.push_str(&description); }
-                    else { s.push_str("A structured summary of the codebase components and architecture."); }
-                    s
-                } else {
+                let salvaged_summary = if has_summary {
                     obj.get("summary").and_then(|v| v.as_str()).unwrap_or("").to_string()
+                } else {
+                    let mut s = String::new();
+                    if !title.is_empty() {
+                        s.push_str("Project: ");
+                        s.push_str(&title);
+                        s.push_str(". ");
+                    }
+                    if !category.is_empty() {
+                        s.push_str("Category: ");
+                        s.push_str(&category);
+                        s.push_str(". ");
+                    }
+                    if description.is_empty() {
+                        s.push_str("A structured summary of the codebase components and architecture.");
+                    } else {
+                        s.push_str(&description);
+                    }
+                    s
                 };
 
-                let salvaged_notes = if !has_notes {
-                    if other_notes.is_empty() {
-                        "* Codebase details and architectural overview compiled from sampled components.".to_string()
-                    } else {
-                        other_notes.join("\n")
-                    }
-                } else {
+                let salvaged_notes = if has_notes {
                     obj.get("architecture_notes").and_then(|v| v.as_str()).unwrap_or("").to_string()
+                } else if other_notes.is_empty() {
+                    "* Codebase details and architectural overview compiled from sampled components.".to_string()
+                } else {
+                    other_notes.join("\n")
                 };
 
                 let mut new_obj = serde_json::Map::new();
@@ -619,26 +626,26 @@ pub(crate) fn salvage_tool_args(text: &str, tool_name: &str) -> Option<String> {
                         else { description = v.to_string(); }
                     } else {
                         let v_str = if let Some(s) = v.as_str() { s.to_string() } else { v.to_string() };
-                        other_notes.push(format!("* {}: {}", k, v_str));
+                        other_notes.push(format!("* {k}: {v_str}"));
                     }
                 }
 
-                let salvaged_summary = if !has_summary {
-                    if !description.is_empty() { description.clone() }
-                    else if !title.is_empty() { format!("Test plan for project: {}", title) }
-                    else { "Structured test plan detailing high-level test strategy and criteria.".to_string() }
-                } else {
+                let salvaged_summary = if has_summary {
                     obj.get("summary").and_then(|v| v.as_str()).unwrap_or("").to_string()
+                } else if !description.is_empty() {
+                    description.clone()
+                } else if !title.is_empty() {
+                    format!("Test plan for project: {title}")
+                } else {
+                    "Structured test plan detailing high-level test strategy and criteria.".to_string()
                 };
 
-                let salvaged_strategy = if !has_strategy {
-                    if !other_notes.is_empty() {
-                        format!("Verify the following architectural aspects:\n{}", other_notes.join("\n"))
-                    } else {
-                        "Perform functional integration and unit verification based on the components.".to_string()
-                    }
-                } else {
+                let salvaged_strategy = if has_strategy {
                     obj.get("strategy").and_then(|v| v.as_str()).unwrap_or("").to_string()
+                } else if other_notes.is_empty() {
+                    "Perform functional integration and unit verification based on the components.".to_string()
+                } else {
+                    format!("Verify the following architectural aspects:\n{}", other_notes.join("\n"))
                 };
 
                 let mut new_obj = serde_json::Map::new();
@@ -685,15 +692,15 @@ fn find_case_insensitive(haystack: &str, needle: &str) -> Option<usize> {
         return Some(0);
     }
     for i in 0..=haystack.len().saturating_sub(needle_len) {
-        if haystack.is_char_boundary(i) && haystack.is_char_boundary(i + needle_len) {
-            if haystack[i..i + needle_len].eq_ignore_ascii_case(needle) {
+        if haystack.is_char_boundary(i) && haystack.is_char_boundary(i + needle_len)
+            && haystack[i..i + needle_len].eq_ignore_ascii_case(needle) {
                 return Some(i);
             }
-        }
     }
     None
 }
 
+#[allow(clippy::needless_range_loop)]
 fn find_balanced_braces(text: &str) -> Vec<String> {
     let mut blocks = Vec::new();
     let bytes = text.as_bytes();
@@ -748,13 +755,7 @@ pub(crate) fn salvage_json_from_text(text: &str) -> Option<String> {
     let cleaned = strip_think_blocks(text);
     let blocks = find_balanced_braces(&cleaned);
     
-    for block in blocks.into_iter().rev() {
-        if serde_json::from_str::<serde_json::Value>(&block).is_ok() {
-            return Some(block);
-        }
-    }
-    
-    None
+    blocks.into_iter().rev().find(|block| serde_json::from_str::<serde_json::Value>(block).is_ok())
 }
 
 async fn retrieve_chunks(
@@ -884,7 +885,7 @@ fn estimate_prompt_tokens(messages: &[Message]) -> u32 {
 
 fn normalize_key_name(key: &str) -> String {
     key.chars()
-        .filter(|c| c.is_ascii_alphanumeric())
+        .filter(char::is_ascii_alphanumeric)
         .collect::<String>()
         .to_ascii_lowercase()
 }
@@ -956,7 +957,7 @@ fn normalize_value_recursively(data: &mut JsonValue, schema: &JsonValue) {
 /// Fill missing required array fields with empty arrays and recursively normalize keys that exhibit casing differences.
 ///
 /// Small / non-tool-trained LLMs frequently omit object keys whose value would be an empty array,
-/// and they often emit keys with incorrect casing (camelCase instead of snake_case).
+/// and they often emit keys with incorrect casing (`camelCase` instead of `snake_case`).
 /// This function normalizes both casing differences and missing arrays recursively.
 pub(crate) fn normalize_missing_arrays(data: &mut JsonValue, tool: &ToolSchema) {
     normalize_value_recursively(data, &tool.parameters_schema);
