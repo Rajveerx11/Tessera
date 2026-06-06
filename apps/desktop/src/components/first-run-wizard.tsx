@@ -190,7 +190,7 @@ function StepOne() {
       </p>
       <ul className="mt-4 space-y-2 text-sm">
         <Bullet>Private by default — your code never leaves this computer.</Bullet>
-        <Bullet>Free local AI via Ollama, or bring your own OpenAI / Anthropic key.</Bullet>
+        <Bullet>Free local AI via Ollama, or bring your own OpenAI / Anthropic / Gemini key.</Bullet>
         <Bullet>Setup takes about a minute, and everything can be changed later in Settings.</Bullet>
       </ul>
     </Section>

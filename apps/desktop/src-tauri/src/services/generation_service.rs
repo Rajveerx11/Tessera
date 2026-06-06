@@ -299,18 +299,14 @@ fn extract_raw_json(
     let preview: String = aggregated.text.chars().take(200).collect();
     let tool_name = &tool_schema.name;
     let text_len = aggregated.text_len;
-    // Models that cannot do OpenAI-style tool calling ignore the `tools`
-    // field and print a pseudo function-call in their own native format
-    // as plain text. The salvage path above can't recover these (the
-    // payload is usually a non-JSON code literal with hallucinated keys),
-    // so detect the format and tell the user to switch models rather than
-    // dumping a cryptic "no JSON object" message.
+    // Some local models ignore the OpenAI-compatible `tools` field and
+    // print their native pseudo-call syntax as plain text. The salvage
+    // path above handles recoverable object literals; this branch keeps
+    // unrecoverable pseudo-calls actionable instead of generic.
     if let Some(fmt) = detect_non_tool_call_format(&aggregated.text) {
         return Err(AppError::InvalidInput(format!(
-            "model `{model}` does not support tool calling — instead of invoking \
-             `{tool_name}` it emitted {fmt} as plain text. Switch to a tool-capable \
-             model: local `qwen2.5-coder:7b`, `qwen2.5:14b`, or `llama3.1:8b`, or a \
-             cloud model like `gpt-4o-mini` / `claude-3-5-sonnet`. Preview: {preview}"
+            "model `{model}` did not invoke `{tool_name}`; it emitted {fmt} as plain text. \
+             Use a tool-capable model or a model that can emit strict JSON. Preview: {preview}"
         )));
     }
     Err(AppError::InvalidInput(format!(
@@ -319,18 +315,6 @@ fn extract_raw_json(
     )))
 }
 
-/// Detect output from a model that cannot perform OpenAI-style tool
-/// calling. Such models ignore the `tools` field and print a pseudo
-/// function-call in their own native format as plain text:
-///
-///  - Gemma 3 / 3n: ```` ```tool_code ```` or `<tool_code>` blocks
-///  - some Llama tunes: `<|python_tag|>` / `<function_call>` tags
-///  - Qwen/others: bare `<tool_call>` XML the local runtime didn't parse
-///  - generic code dump: `print(default_api.foo(...))` / `console.log(...)`
-///
-/// Returns a short human label for the detected format so the error
-/// message can name it. `None` means the free text is some other shape
-/// (handled by the generic "no JSON object" error).
 fn detect_non_tool_call_format(text: &str) -> Option<&'static str> {
     let lower = text.to_lowercase();
     if lower.contains("tool_code") {
@@ -339,10 +323,7 @@ fn detect_non_tool_call_format(text: &str) -> Option<&'static str> {
         Some("`<tool_call>` tags")
     } else if lower.contains("<function_call") || lower.contains("<|python_tag|>") {
         Some("Llama function-call tags")
-    } else if lower.contains("default_api.")
-        || lower.contains("console.log(")
-        || lower.contains("print(")
-    {
+    } else if lower.contains("default_api.") {
         Some("a code snippet")
     } else {
         None
@@ -958,10 +939,9 @@ fn normalize_js_strings(raw: &str) -> String {
     for ch in raw.chars() {
         if let Some(quote) = in_string {
             if escaped {
-                // JSON has no `\'` escape: an escaped single quote (legal in
-                // JS in both quote styles) must become a bare `'` inside the
-                // double-quoted JSON output. The `\` was already pushed —
-                // pop it. `\"` stays intact (valid JSON escape).
+                // `\'` is valid in JS strings (single- or double-quoted)
+                // but not in JSON; pop the `\` we already wrote and emit
+                // the quote bare.
                 if ch == '\'' {
                     out.pop();
                 }
@@ -1947,7 +1927,7 @@ mod tests {
     fn salvage_tool_args_recovers_single_quoted_tool_code_strings() {
         let text = r"<tool_code>
             console.log(default_api.emit_test_plan({
-                summary: 'Plan with a } brace in prose',
+                summary: 'It\'s a plan with a } brace in prose',
                 strategy: 'Verify parser resilience',
             }))
         </tool_code>";
@@ -1956,7 +1936,25 @@ mod tests {
         let mut parsed: serde_json::Value = serde_json::from_str(&got).unwrap();
         normalize_missing_arrays(&mut parsed, &test_plan_v1::tool());
         validate_tool_output(&test_plan_v1::tool(), &parsed).expect("valid test plan");
-        assert_eq!(parsed["summary"], "Plan with a } brace in prose");
+        assert_eq!(parsed["summary"], "It's a plan with a } brace in prose");
+    }
+
+    #[test]
+    fn salvage_tool_args_recovers_escaped_apostrophe_in_double_quoted_strings() {
+        // `\'` is a legal (if unnecessary) escape in double-quoted JS
+        // strings but invalid JSON — the normalizer must drop the backslash.
+        let text = r#"<tool_code>
+            console.log(default_api.emit_test_plan({
+                summary: "It\'s a plan",
+                strategy: "Verify parser resilience",
+            }))
+        </tool_code>"#;
+
+        let got = salvage_tool_args(text, "emit_test_plan").expect("salvage");
+        let mut parsed: serde_json::Value = serde_json::from_str(&got).unwrap();
+        normalize_missing_arrays(&mut parsed, &test_plan_v1::tool());
+        validate_tool_output(&test_plan_v1::tool(), &parsed).expect("valid test plan");
+        assert_eq!(parsed["summary"], "It's a plan");
     }
 
     #[test]
@@ -2079,33 +2077,30 @@ mod tests {
 
     #[test]
     fn detect_non_tool_call_format_flags_native_formats() {
-        // Gemma 3n emitting a `<tool_code>` JS snippet (the real-world repro).
-        let gemma = "<tool_code> console.log(google.admin.project_context.set_project_context({ project_name: \"X\" }))";
         assert_eq!(
-            detect_non_tool_call_format(gemma),
+            detect_non_tool_call_format("<tool_code> console.log(set_project_context())"),
             Some("Gemma-style `tool_code` blocks")
         );
-        // Fenced variant.
-        assert_eq!(
-            detect_non_tool_call_format("```tool_code\nfoo()\n```"),
-            Some("Gemma-style `tool_code` blocks")
-        );
-        // Llama python_tag tool format.
-        assert_eq!(
-            detect_non_tool_call_format("<|python_tag|>emit(...)"),
-            Some("Llama function-call tags")
-        );
-        // Bare XML tool_call the runtime failed to parse.
         assert_eq!(
             detect_non_tool_call_format("<tool_call>{}</tool_call>"),
             Some("`<tool_call>` tags")
         );
-        // Generic code dump.
+        assert_eq!(
+            detect_non_tool_call_format("<|python_tag|>emit(...)"),
+            Some("Llama function-call tags")
+        );
         assert_eq!(
             detect_non_tool_call_format("print(default_api.foo())"),
             Some("a code snippet")
         );
-        // Ordinary prose / near-JSON is NOT flagged — generic error path.
+        assert_eq!(
+            detect_non_tool_call_format("You could use console.log(result) to debug this."),
+            None
+        );
+        assert_eq!(
+            detect_non_tool_call_format("Try print(result) while investigating."),
+            None
+        );
         assert_eq!(
             detect_non_tool_call_format("I cannot help with that."),
             None
@@ -2129,11 +2124,7 @@ mod tests {
         let err = extract_raw_json(&aggregate, &schema, "gemma3n:e4b")
             .expect_err("tool-incapable output must error");
         let msg = err.to_string();
-        assert!(msg.contains("does not support tool calling"), "got: {msg}");
-        assert!(
-            msg.contains("qwen2.5-coder:7b"),
-            "must name a fix model: {msg}"
-        );
+        assert!(msg.contains("did not invoke `emit_project_context`"), "got: {msg}");
         assert!(
             msg.contains("tool_code"),
             "must name the detected format: {msg}"

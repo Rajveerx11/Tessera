@@ -47,12 +47,15 @@ export const RunRequestSchema = z.object({
   artifactId: z.string().uuid(),
   optInConfirmed: z.boolean(),
   /**
-   * Caller-generated correlation id (UUID) the backend registers the run's
-   * cancel token under, so the UI can Stop a run before the run IPC returns.
+   * Caller-generated correlation id the backend registers the run's cancel
+   * token under, so the UI can Stop a run before the run IPC returns.
    * Optional on the wire (the Rust struct defaults it to empty); the UI
-   * always supplies one so its Stop button can target the run.
+   * always supplies a UUID via `crypto.randomUUID()`. Validated as any
+   * non-empty string — the Rust `RunRequest` is a plain `String`, and the
+   * Zod mirror must not be stricter than the serde source of truth
+   * (rules.md §12.3.1).
    */
-  clientRunId: z.string().uuid().optional(),
+  clientRunId: z.string().min(1).optional(),
 });
 
 export type RunRequest = z.infer<typeof RunRequestSchema>;

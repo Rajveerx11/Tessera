@@ -72,7 +72,7 @@ Opt-in, off by default. With the sandbox enabled in settings and Docker present,
 │            ├─▶ Tree-sitter (JS / TS / Python)                  │
 │            ├─▶ Ollama embeddings (nomic-embed-text)            │
 │            ├─▶ LLM provider trait (Ollama / OpenAI /           │
-│            │                       OpenRouter / Anthropic)     │
+│            │             OpenRouter / Anthropic / Gemini)      │
 │            └─▶ TestRunner trait (opt-in Docker sandbox, JS/TS) │
 └────────────────────────────────────────────────────────────────┘
 ```
@@ -99,6 +99,7 @@ Layered backend (see [`rules/rules.md`](./rules/rules.md) §4.2): **commands** a
 | OpenAI | API key | ❌ | Custom base URL (Azure / proxies) |
 | OpenRouter | API key | ❌ | Gateway to many models |
 | Anthropic | API key | ❌ | Claude family |
+| Google Gemini | API key | ❌ | Google AI Studio key; OpenAI-compatible endpoint |
 
 Embeddings are pluggable; the default `nomic-embed-text` (768-dim, Apache-2.0) ships with Ollama.
 
@@ -124,7 +125,7 @@ pnpm --filter @testing-ide/desktop run dev     # boots Vite + Tauri; the desktop
 
 - **macOS** — `xcode-select --install`.
 - **Linux** — install Tauri's system deps: `libwebkit2gtk-4.1-dev libssl-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev build-essential curl wget file`.
-- **Optional shared stack** — `pnpm services:up` / `services:down` runs pgvector + Ollama via [`docker-compose.yml`](./docker-compose.yml).
+- **Optional shared stack** — `pnpm services:up` / `services:down` runs Ollama via [`docker-compose.yml`](./docker-compose.yml).
 
 ---
 
@@ -160,7 +161,6 @@ Clippy runs clean under `-W clippy::pedantic`; release builds are green on Windo
 apps/desktop/        Tauri shell — React frontend (src/) + Rust backend (src-tauri/)
 packages/
   shared/            Zod schemas + inferred TS types (the FE/BE contract)
-  ui/                shadcn/ui-flavored shared components
   eslint-config/     base + React presets
   tsconfig/          base + desktop presets
 rules/               engineering rulebook (rules.md)
@@ -170,6 +170,21 @@ tools/scripts/       deploy + release automation
 ```
 
 Architecture Decision Records live in [`apps/desktop/src-tauri/docs/adr/`](./apps/desktop/src-tauri/docs/adr/).
+
+---
+
+## Documentation
+
+Stay up to date with what's happening in the project:
+
+| Document | What you'll find |
+|----------|------------------|
+| [`CHANGELOG.md`](./CHANGELOG.md) | Version history — every change, grouped by release |
+| [`docs/PROJECT_STATUS.md`](./docs/PROJECT_STATUS.md) | Living project context — architecture, status, roadmap, quality grades |
+| [`docs/FEATURE_REVIEW.md`](./docs/FEATURE_REVIEW.md) | Feature scorecard — 22 features rated with gaps and priorities |
+| [`docs/AGENT_WORKFLOW.md`](./docs/AGENT_WORKFLOW.md) | Change-management contract for humans + AI agents |
+| [`plan/ROADMAP.md`](./plan/ROADMAP.md) | Feature roadmap and known limitations |
+| [`rules/rules.md`](./rules/rules.md) | Engineering rules (layering, IPC, security, testing) |
 
 ---
 
@@ -211,6 +226,8 @@ gh pr create --fill        # template + CODEOWNERS take it from here
 
 Read before opening a PR:
 
+- [`CHANGELOG.md`](./CHANGELOG.md) — what changed and when
+- [`docs/PROJECT_STATUS.md`](./docs/PROJECT_STATUS.md) — full project context and current state
 - [`docs/AGENT_WORKFLOW.md`](./docs/AGENT_WORKFLOW.md) — the change-management contract (humans + AI agents)
 - [`rules/rules.md`](./rules/rules.md) — engineering rules (layering, IPC, schema validation, security)
 - [`CONTRIBUTING.md`](./CONTRIBUTING.md) — quick-start pointer · [`BRANCH_PROTECTION.md`](./BRANCH_PROTECTION.md) — admin runbook

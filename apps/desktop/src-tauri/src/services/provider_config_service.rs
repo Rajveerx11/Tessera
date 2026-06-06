@@ -12,7 +12,7 @@ use crate::providers::factory::{ProviderConfig, ProviderKind};
 use crate::repositories::provider_config_repo::{self, ProviderConfigUpsert};
 use crate::utils::crypto::CryptoKey;
 use crate::utils::provider_base_url::{
-    normalize_ollama_base_url, normalize_openai_compatible_base_url,
+    normalize_gemini_base_url, normalize_ollama_base_url, normalize_openai_compatible_base_url,
 };
 
 const DEFAULT_USER_ID: &str = "00000000-0000-4000-8000-000000000001";
@@ -184,7 +184,8 @@ fn resolve_base_url(
 }
 
 /// Normalize a provider base URL according to its `kind`: Ollama hosts
-/// strip `/api` and `/v1` suffixes, OpenAI-compatible hosts strip `/v1`.
+/// strip `/api` and `/v1` suffixes, OpenAI-compatible hosts strip `/v1`,
+/// Gemini hosts strip the `/v1beta/openai` compatibility path.
 ///
 /// Shared by `provider_connection_service` so the normalization rule has a
 /// single definition across config persistence and connection testing.
@@ -194,6 +195,7 @@ pub(crate) fn normalize_base_url(kind: ProviderKind, raw: &str) -> String {
         ProviderKind::OpenAi | ProviderKind::OpenRouter | ProviderKind::Anthropic => {
             normalize_openai_compatible_base_url(raw)
         }
+        ProviderKind::Gemini => normalize_gemini_base_url(raw),
     }
 }
 
@@ -277,6 +279,7 @@ mod tests {
             ("anthropic", ProviderKind::Anthropic),
             ("openrouter", ProviderKind::OpenRouter),
             ("ollama-cloud", ProviderKind::OllamaCloud),
+            ("gemini", ProviderKind::Gemini),
         ];
         for (s, expected) in cases {
             assert_eq!(ProviderKind::from_str_value(s).expect(s), expected);
@@ -404,6 +407,13 @@ mod tests {
         assert_eq!(
             normalize_base_url(ProviderKind::OpenAi, "https://api.openai.com/v1/"),
             "https://api.openai.com"
+        );
+        assert_eq!(
+            normalize_base_url(
+                ProviderKind::Gemini,
+                "https://generativelanguage.googleapis.com/v1beta/openai/"
+            ),
+            "https://generativelanguage.googleapis.com"
         );
     }
 }

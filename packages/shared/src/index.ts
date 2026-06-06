@@ -12,6 +12,7 @@ export * from './types/ollama-models';
 export * from './types/project';
 export * from './types/provider-config';
 export * from './types/user';
+export * from './types/board';
 
 // Zod schemas (inferred TS types are re-exported alongside each schema)
 export * from './schemas/artifact.schema';
@@ -28,3 +29,4 @@ export * from './schemas/test-plan.schema';
 export * from './schemas/test-run.schema';
 export * from './schemas/user.schema';
 export * from './schemas/ollama-status.schema';
+export * from './schemas/board.schema';
