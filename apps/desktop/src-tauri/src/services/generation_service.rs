@@ -29,7 +29,7 @@ use sqlx::SqlitePool;
 
 use crate::error::{AppError, AppResult};
 use crate::prompts::{
-    bug_report_v2, context_md_v1, defect_report_v1, test_cases_v2, test_plan_v1, PromptContext,
+    bug_report_v2, context_md_v1, defect_report_v2, test_cases_v2, test_plan_v2, PromptContext,
 };
 use crate::providers::embeddings::EmbeddingProvider;
 use crate::providers::llm::types::{Chunk as LlmChunk, GenerateRequest, Message, ToolSchema};
@@ -1244,9 +1244,9 @@ fn build_prompt(
             context_md_v1::VERSION,
         ),
         ArtifactType::TestPlan => (
-            test_plan_v1::build_messages(ctx),
-            test_plan_v1::tool(),
-            test_plan_v1::VERSION,
+            test_plan_v2::build_messages(ctx),
+            test_plan_v2::tool(),
+            test_plan_v2::VERSION,
         ),
         ArtifactType::TestCases => (
             test_cases_v2::build_messages(ctx),
@@ -1254,9 +1254,9 @@ fn build_prompt(
             test_cases_v2::VERSION,
         ),
         ArtifactType::DefectReport => (
-            defect_report_v1::build_messages(ctx),
-            defect_report_v1::tool(),
-            defect_report_v1::VERSION,
+            defect_report_v2::build_messages(ctx),
+            defect_report_v2::tool(),
+            defect_report_v2::VERSION,
         ),
         ArtifactType::BugReport => (
             bug_report_v2::build_messages(ctx),
@@ -1482,6 +1482,10 @@ fn render_markdown(kind: ArtifactType, data: &JsonValue) -> String {
 mod tests {
     use super::*;
     use crate::db::init_pool_at;
+    // v1 prompt modules are kept for replay/back-compat; the
+    // version-agnostic salvage/normalize mechanics tests below still
+    // exercise them alongside the live-routed v2 schemas.
+    use crate::prompts::{defect_report_v1, test_plan_v1};
     use crate::providers::embeddings::EmbeddingProvider as EmbeddingProviderTrait;
     use crate::providers::llm::error::LlmError;
     use crate::providers::llm::types::{
@@ -1587,15 +1591,21 @@ mod tests {
         r#"{
             "summary": "Plan to verify the auth subsystem covers happy and failure paths.",
             "objectives": ["Verify login", "Verify logout"],
-            "scopeIn": ["auth module"],
-            "scopeOut": [],
+            "scope": {
+                "inScope": ["auth module"],
+                "outOfScope": ["database migrations"]
+            },
             "strategy": "Use a risk-based mix of API and service-level checks focused on login, logout, and session lifecycle behavior.",
+            "testLevels": ["unit", "integration"],
+            "testTypes": ["functional", "security"],
             "environments": ["local Express server with JSON requests"],
             "risks": [
                 {"description": "Session tokens may remain active after logout.", "mitigation": "Verify revocation and post-logout access denial."}
             ],
             "entryCriteria": ["Code merged"],
-            "exitCriteria": ["All tests pass"]
+            "exitCriteria": ["All tests pass"],
+            "suspensionCriteria": ["Auth environment unavailable"],
+            "deliverables": ["Test case suite", "Run report"]
         }"#
     }
 
@@ -1657,7 +1667,7 @@ mod tests {
             .await
             .expect("fetch");
         assert_eq!(stored.generation_metadata.provider, "scripted");
-        assert_eq!(stored.generation_metadata.prompt_version, "test_plan_v1");
+        assert_eq!(stored.generation_metadata.prompt_version, "test_plan_v2");
         assert_eq!(stored.generation_metadata.input_tokens, 120);
 
         pool.close().await;
@@ -1882,14 +1892,14 @@ mod tests {
 
     #[test]
     fn validate_tool_output_accepts_valid_json() {
-        let schema = test_plan_v1::tool();
+        let schema = test_plan_v2::tool();
         let v: JsonValue = serde_json::from_str(valid_test_plan_json()).expect("parse");
         validate_tool_output(&schema, &v).expect("valid");
     }
 
     #[test]
     fn validate_tool_output_rejects_missing_required_field() {
-        let schema = test_plan_v1::tool();
+        let schema = test_plan_v2::tool();
         let v = serde_json::json!({ "summary": "ok" });
         let err = validate_tool_output(&schema, &v).expect_err("must reject");
         assert_eq!(err.code(), "INVALID_INPUT");
