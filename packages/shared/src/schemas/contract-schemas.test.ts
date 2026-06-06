@@ -844,6 +844,24 @@ describe('BugReportSchema', () => {
   it('rejects a lowercase-mixed bug id', () => {
     expect(() => BugReportSchema.parse({ bugs: [{ ...v2Bug, id: 'BUG-Save-Race' }] })).toThrow();
   });
+
+  it('rejects an inverted rootCause line range (endLine < startLine)', () => {
+    expect(() =>
+      BugReportSchema.parse({
+        bugs: [
+          {
+            ...v2Bug,
+            rootCause: {
+              symbol: 'saveReport',
+              startLine: 20,
+              endLine: 10,
+              explanation: 'No write lock around the insert.',
+            },
+          },
+        ],
+      }),
+    ).toThrow();
+  });
 });
 
 describe('TestPlanSchema', () => {
@@ -937,6 +955,14 @@ describe('DefectReportSchema', () => {
   it('rejects v1-style string locations', () => {
     expect(() =>
       DefectReportSchema.parse({ findings: [{ ...v2Finding, location: 'api.ts:42' }] }),
+    ).toThrow();
+  });
+
+  it('rejects an inverted location line range (endLine < startLine)', () => {
+    expect(() =>
+      DefectReportSchema.parse({
+        findings: [{ ...v2Finding, location: { symbol: 'parseUser', startLine: 10, endLine: 5 } }],
+      }),
     ).toThrow();
   });
 });

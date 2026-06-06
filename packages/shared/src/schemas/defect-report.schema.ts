@@ -33,12 +33,17 @@ export type DefectConfidence = z.infer<typeof DefectConfidenceSchema>;
  * Source location of one finding — mirrors the `location` object in the
  * Rust `emit_defect_report` v2 tool schema (`prompts/defect_report_v2.rs`).
  */
-export const DefectLocationSchema = z.object({
-  symbol: z.string().min(1),
-  startLine: z.number().int().min(1),
-  endLine: z.number().int().min(1),
-  fileHint: z.string().optional(),
-});
+export const DefectLocationSchema = z
+  .object({
+    symbol: z.string().min(1),
+    startLine: z.number().int().min(1),
+    endLine: z.number().int().min(1),
+    fileHint: z.string().optional(),
+  })
+  .refine((location) => location.endLine >= location.startLine, {
+    message: 'endLine must be greater than or equal to startLine',
+    path: ['endLine'],
+  });
 
 export type DefectLocation = z.infer<typeof DefectLocationSchema>;
 
