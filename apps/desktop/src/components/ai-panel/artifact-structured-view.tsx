@@ -56,8 +56,9 @@ function StringList({ label, items }: { label: string; items: readonly string[] 
     <div>
       <p className={FIELD_LABEL_CLASS}>{label}</p>
       <ul className="mt-1 list-disc space-y-0.5 pl-5 text-xs">
-        {items.map((item) => (
-          <li key={item}>{item}</li>
+        {/* Ordered, never re-ordered list; items can repeat, so the index is the stable key. */}
+        {items.map((item, i) => (
+          <li key={`${label}-${i}`}>{item}</li>
         ))}
       </ul>
     </div>
@@ -94,7 +95,7 @@ function TestCasesView({ data }: { data: TestCase }) {
               </thead>
               <tbody>
                 {tc.steps.map((step, i) => (
-                  <tr key={`${tc.id}-step-${step.action}`} className="border-b border-border/50 align-top">
+                  <tr key={`${tc.id}-step-${i}`} className="border-b border-border/50 align-top">
                     <td className="text-muted-foreground py-1 pr-2 font-mono">{i + 1}</td>
                     <td className="py-1 pr-2">{step.action}</td>
                     <td className="py-1">{step.expectedResult}</td>
@@ -131,8 +132,8 @@ function BugReportView({ data }: { data: BugReport }) {
           <div>
             <p className={FIELD_LABEL_CLASS}>Steps to reproduce</p>
             <ol className="mt-1 list-decimal space-y-0.5 pl-5 text-xs">
-              {bug.stepsToReproduce.map((step) => (
-                <li key={step}>{step.replace(/^\d+[.)]\s*/, '')}</li>
+              {bug.stepsToReproduce.map((step, i) => (
+                <li key={`${bug.id}-repro-${i}`}>{step.replace(/^\d+[.)]\s*/, '')}</li>
               ))}
             </ol>
           </div>
