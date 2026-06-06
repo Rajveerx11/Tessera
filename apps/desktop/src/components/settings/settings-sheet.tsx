@@ -4,7 +4,7 @@ import type {
   ProviderConnectionTestResult,
 } from '@testing-ide/shared';
 import { Check, Loader2, Trash2, X } from 'lucide-react';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { Button } from '@/components/ui/button';
 import { Dialog } from '@/components/ui/dialog';
@@ -72,6 +72,16 @@ export function SettingsSheet() {
   const [isCustomModel, setIsCustomModel] = useState(false);
   const [ollamaStatus, setOllamaStatus] = useState<OllamaStatus | null>(null);
   const [startingOllama, setStartingOllama] = useState(false);
+
+  const ollamaIntervalRef = useRef<NodeJS.Timeout | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (ollamaIntervalRef.current) {
+        clearInterval(ollamaIntervalRef.current);
+      }
+    };
+  }, []);
 
   const loadSavedConfig = useCallback((targetProvider: ProviderOption['id'], currentList: ProviderConfigView[]) => {
     const saved = currentList.find(c => c.provider === targetProvider);
@@ -170,9 +180,14 @@ export function SettingsSheet() {
         }
       }
     }
-  }, [open, provider, baseUrl, list, loadModels, checkStatus]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, provider, list, loadModels, checkStatus]);
 
   const handleStartOllama = useCallback(() => {
+    if (ollamaIntervalRef.current) {
+      clearInterval(ollamaIntervalRef.current);
+      ollamaIntervalRef.current = null;
+    }
     setStartingOllama(true);
     setError(null);
     void (async () => {
@@ -189,23 +204,31 @@ export function SettingsSheet() {
               setOllamaStatus(status);
               if (status.running) {
                 clearInterval(interval);
+                if (ollamaIntervalRef.current === interval) {
+                  ollamaIntervalRef.current = null;
+                }
                 setStartingOllama(false);
                 setAvailableModels(status.models);
                 if (status.models.length > 0 && status.models[0]) {
                   setModel(status.models[0]);
                 }
+                return;
               }
             } catch (err) {
               console.error('Polling Ollama status error:', err);
             }
-          })();
 
-          if (attempts >= 10) {
-            clearInterval(interval);
-            setStartingOllama(false);
-            setError("Ollama started, but failed to connect within timeout.");
-          }
+            if (attempts >= 10) {
+              clearInterval(interval);
+              if (ollamaIntervalRef.current === interval) {
+                ollamaIntervalRef.current = null;
+              }
+              setStartingOllama(false);
+              setError("Ollama started, but failed to connect within timeout.");
+            }
+          })();
         }, 1000);
+        ollamaIntervalRef.current = interval;
       } catch (err) {
         setStartingOllama(false);
         setError(getErrorMessage(err));
@@ -406,6 +429,9 @@ export function SettingsSheet() {
                 value={baseUrl}
                 onChange={(e) => {
                   setBaseUrl(e.target.value);
+                }}
+                onBlur={() => {
+                  loadModels(provider, baseUrl, apiKey);
                 }}
                 placeholder={provider === 'ollama' ? 'http://localhost:11434' : 'optional'}
                 autoComplete="off"

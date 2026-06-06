@@ -1140,11 +1140,7 @@ async fn retrieve_chunks(
 
             let mut cmd = std::process::Command::new("ollama");
             cmd.arg("serve");
-            #[cfg(windows)]
-            {
-                use std::os::windows::process::CommandExt;
-                cmd.creation_flags(0x0800_0000 | 0x0000_0008 | 0x0000_0200);
-            }
+            crate::utils::process::configure_detached_process(&mut cmd);
 
             if cmd.spawn().is_ok() {
                 let mut retry_success = false;

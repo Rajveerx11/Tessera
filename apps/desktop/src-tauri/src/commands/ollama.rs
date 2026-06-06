@@ -4,8 +4,6 @@
 //! and format the IPC boundary. No business logic lives here.
 
 use std::process::Command;
-#[cfg(windows)]
-use std::os::windows::process::CommandExt;
 
 use tauri::State;
 
@@ -31,13 +29,7 @@ pub async fn start_ollama_server() -> Result<String, String> {
     let mut cmd = Command::new("ollama");
     cmd.arg("serve");
 
-    #[cfg(windows)]
-    {
-        // CREATE_NO_WINDOW (0x0800_0000) - run in background without console window
-        // DETACHED_PROCESS (0x0000_0008) - run independently of parent process
-        // CREATE_NEW_PROCESS_GROUP (0x0000_0200) - process group leader for signal isolation
-        cmd.creation_flags(0x0800_0000 | 0x0000_0008 | 0x0000_0200);
-    }
+    crate::utils::process::configure_detached_process(&mut cmd);
 
     match cmd.spawn() {
         Ok(_) => Ok(resolved_url),

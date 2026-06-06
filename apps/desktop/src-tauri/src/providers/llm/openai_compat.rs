@@ -67,7 +67,8 @@ pub fn stream_chat_completions(req: ChatRequest<'_>) -> ChunkStream {
             // If the error suggests that the model or endpoint doesn't support tools/functions
             if text_lower.contains("tool")
                 || text_lower.contains("function")
-                || text_lower.contains("choice")
+                || text_lower.contains("tool_choice")
+                || text_lower.contains("tool choice")
                 || text_lower.contains("endpoints found")
             {
                 tracing::warn!(
