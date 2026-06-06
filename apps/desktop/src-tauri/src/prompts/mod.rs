@@ -152,6 +152,39 @@ pub fn system_text(text: impl Into<String>) -> Message {
     }
 }
 
+/// JSON-Schema for the runnable `files[]` workspace carried on a
+/// test-cases artifact — the contract the sandbox runner consumes
+/// (`RunInput` / `sandbox_service`). Shared by `test_cases_v1` and
+/// `test_cases_v2` so the contract cannot drift between prompt
+/// versions; both modules' tool snapshots lock the emitted value.
+#[must_use]
+pub fn runnable_files_schema() -> serde_json::Value {
+    serde_json::json!({
+        "type": "array",
+        "description": "Runnable workspace mirroring the cases: minimal source-under-test plus generated vitest specs, so the local sandbox can execute them. Optional — omit for descriptive-only cases.",
+        "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["path", "contents", "isTest"],
+            "properties": {
+                "path": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "Workspace-relative path, e.g. `src/add.ts` or `add.test.ts`. No absolute paths, no `..`."
+                },
+                "contents": {
+                    "type": "string",
+                    "description": "Full file contents."
+                },
+                "isTest": {
+                    "type": "boolean",
+                    "description": "true for a generated vitest spec; false for source-under-test."
+                }
+            }
+        }
+    })
+}
+
 /// Helper: produce a `ToolSchema` from a name, description, and a
 /// JSON-Schema document. The Phase 2 `ToolSchema` type stores the
 /// schema as `serde_json::Value` so we wrap the literal here.

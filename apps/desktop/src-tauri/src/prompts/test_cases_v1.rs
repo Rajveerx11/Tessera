@@ -9,7 +9,7 @@ use std::fmt::Write as _;
 
 use crate::providers::llm::types::{Message, ToolSchema};
 
-use super::{system_text, tool_schema, user_text, PromptContext};
+use super::{runnable_files_schema, system_text, tool_schema, user_text, PromptContext};
 
 pub const VERSION: &str = "test_cases_v1";
 
@@ -156,30 +156,7 @@ pub fn tool() -> ToolSchema {
                         }
                     }
                 },
-                "files": {
-                    "type": "array",
-                    "description": "Runnable workspace mirroring the cases: minimal source-under-test plus generated vitest specs, so the local sandbox can execute them. Optional — omit for descriptive-only cases.",
-                    "items": {
-                        "type": "object",
-                        "additionalProperties": false,
-                        "required": ["path", "contents", "isTest"],
-                        "properties": {
-                            "path": {
-                                "type": "string",
-                                "minLength": 1,
-                                "description": "Workspace-relative path, e.g. `src/add.ts` or `add.test.ts`. No absolute paths, no `..`."
-                            },
-                            "contents": {
-                                "type": "string",
-                                "description": "Full file contents."
-                            },
-                            "isTest": {
-                                "type": "boolean",
-                                "description": "true for a generated vitest spec; false for source-under-test."
-                            }
-                        }
-                    }
-                }
+                "files": runnable_files_schema()
             }
         }),
     )
