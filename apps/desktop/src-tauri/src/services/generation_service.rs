@@ -1342,6 +1342,29 @@ fn renest_flattened_array_items(
     }
 }
 
+/// Coerce structured values in string-typed fields: small models emit
+/// JSON objects for fields like `testData` (`{"email": "...",
+/// "password": "..."}`) where the schema wants a string. Serialize the
+/// value to its compact JSON text so a richer-but-wrong-shaped value
+/// validates instead of hard-failing the generation. Nulls are left for
+/// validation to report.
+fn coerce_structured_strings(
+    obj: &mut serde_json::Map<String, JsonValue>,
+    properties: &serde_json::Map<String, JsonValue>,
+) {
+    for (schema_key, property_schema) in properties {
+        if property_schema.get("type").and_then(|t| t.as_str()) != Some("string") {
+            continue;
+        }
+        if let Some(val) = obj.get_mut(schema_key) {
+            if !matches!(val, JsonValue::String(_) | JsonValue::Null) {
+                let text = val.to_string();
+                *val = JsonValue::String(text);
+            }
+        }
+    }
+}
+
 fn normalize_value_recursively(data: &mut JsonValue, schema: &JsonValue) {
     match data {
         JsonValue::Object(obj) => {
@@ -1426,6 +1449,10 @@ fn normalize_value_recursively(data: &mut JsonValue, schema: &JsonValue) {
             // (`action` / `expectedResult` on a test case) become one
             // new element of that array.
             renest_flattened_array_items(obj, properties);
+
+            // 2c. Coerce structured values in string-typed fields
+            // (e.g. `testData` emitted as a JSON object of inputs).
+            coerce_structured_strings(obj, properties);
 
             // 3. Missing arrays normalization: Insert [] for required array fields if absent
             if let Some(required) = schema.get("required").and_then(|v| v.as_array()) {
@@ -2596,6 +2623,33 @@ mod tests {
         assert_eq!(case["steps"][0]["expectedResult"], "A session token is returned");
         assert!(case.get("action").is_none());
         assert!(case.get("expectedResult").is_none());
+    }
+
+    #[test]
+    fn normalize_coerces_structured_test_data_to_string() {
+        // Reproduces the golden-suite failure on qwen2.5-coder:1.5b: the
+        // model emitted `testData` as a JSON object of inputs
+        // (`{"email": "...", "password": "..."}`) where the schema wants
+        // a string — "is not of type \"string\"".
+        let schema = test_cases_v2::tool();
+        let mut data = serde_json::json!({
+            "cases": [{
+                "id": "TC-LOGIN-SUCCESS",
+                "title": "Login succeeds with valid credentials",
+                "type": "positive",
+                "priority": "p1",
+                "testData": { "email": "user@example.com", "password": "securePassword" },
+                "steps": [
+                    { "action": "Call login", "expectedResult": "Token returned" }
+                ]
+            }]
+        });
+        normalize_missing_arrays(&mut data, &schema);
+        validate_tool_output(&schema, &data).expect("structured testData heals to valid");
+        let test_data = data["cases"][0]["testData"].as_str().expect("string");
+        assert!(test_data.contains("user@example.com"));
+        // Plain string values are untouched by the coercion pass.
+        assert_eq!(data["cases"][0]["title"], "Login succeeds with valid credentials");
     }
 
     #[test]
