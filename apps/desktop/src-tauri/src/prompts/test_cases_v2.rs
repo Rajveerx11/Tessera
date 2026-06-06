@@ -1,9 +1,12 @@
-//! Prompt template: per-function / per-module test cases, version 1.
+//! Prompt template: per-function / per-module test cases, version 2.
 //!
-//! Generates concrete test cases bound to specific code symbols. Each
-//! case carries title, preconditions, steps, expected result,
-//! priority, and traceability back to the source function/file
-//! (rules.md §12.1 — structured output via JSON Schema).
+//! Industry-grade upgrade over `test_cases_v1` (`plan/ARTIFACT_QUALITY_V2.md`
+//! Phase 1): `TestRail` separated-steps pattern (`steps` is now
+//! `{ action, expectedResult }[]`), explicit case `type`
+//! (positive/negative/boundary/error/security), optional `testData`,
+//! `postconditions[]`, and a prompt mandate of at least one negative and
+//! one boundary case per covered feature. The runnable `files[]` payload
+//! is byte-identical to v1 — the sandbox runner contract is unchanged.
 
 use std::fmt::Write as _;
 
@@ -11,7 +14,7 @@ use crate::providers::llm::types::{Message, ToolSchema};
 
 use super::{runnable_files_schema, system_text, tool_schema, user_text, PromptContext};
 
-pub const VERSION: &str = "test_cases_v1";
+pub const VERSION: &str = "test_cases_v2";
 
 pub const TOOL_NAME: &str = "emit_test_cases";
 
@@ -23,10 +26,17 @@ function/method/class).
 Rules:
 - Bind every test case to a symbol that appears in the supplied chunks. If \
   the symbol is not visible, do NOT generate a case for it.
-- Cover positive, negative, boundary, and error paths — but only when each \
-  applies to the bound symbol's behavior.
-- Steps are imperative and ordered. Expected results are observable, not \
-  internal state assertions the test runner cannot reach.
+- Every case carries a `type`: positive, negative, boundary, error, or \
+  security. For EACH covered feature you MUST include at least one \
+  `negative` case (invalid input / unexpected usage) and at least one \
+  `boundary` case (boundary-value analysis: min, max, empty, off-by-one).
+- Steps follow the separated-steps pattern: each step is an object with an \
+  imperative `action` and an observable `expectedResult` for that step. \
+  Expected results are observable, not internal state assertions the test \
+  runner cannot reach.
+- Supply `testData` (concrete input values) when the case depends on \
+  specific data; supply `postconditions` when the case leaves state that \
+  must be verified or cleaned up.
 - Priority must follow impact * likelihood, not test difficulty.
 - Test case IDs must strictly match the regex `^TC-[A-Z0-9_-]+$` (all-caps, \
   e.g., `TC-LOGIN-SUCCESS`, NOT `TC-Login-Success` or `TC-Login`).
@@ -47,10 +57,14 @@ The structured payload MUST have the following JSON structure:
     {
       \"id\": \"TC-UNIQUE-ID\",
       \"title\": \"Short descriptive title\",
-      \"preconditions\": [\"Precondition 1\"],
-      \"steps\": [\"Step 1\", \"Step 2\"],
-      \"expectedResult\": \"Expected result\",
+      \"type\": \"positive | negative | boundary | error | security\",
       \"priority\": \"p0 | p1 | p2 | p3\",
+      \"preconditions\": [\"Precondition 1\"],
+      \"testData\": \"Concrete input values used by the steps\",
+      \"steps\": [
+        { \"action\": \"Step 1 action\", \"expectedResult\": \"Observable result of step 1\" }
+      ],
+      \"postconditions\": [\"State left after the case\"],
       \"traceability\": [\"path/to/file.ext#symbol\"]
     }
   ]
@@ -86,10 +100,14 @@ pub fn build_messages(ctx: &PromptContext<'_>) -> Vec<Message> {
         {\n\
           \"id\": \"TC-UNIQUE-ID\",\n\
           \"title\": \"Short descriptive title\",\n\
-          \"preconditions\": [\"Precondition 1\"],\n\
-          \"steps\": [\"Step 1\", \"Step 2\"],\n\
-          \"expectedResult\": \"Expected result\",\n\
+          \"type\": \"positive | negative | boundary | error | security\",\n\
           \"priority\": \"p0 | p1 | p2 | p3\",\n\
+          \"preconditions\": [\"Precondition 1\"],\n\
+          \"testData\": \"Concrete input values used by the steps\",\n\
+          \"steps\": [\n\
+            { \"action\": \"Step 1 action\", \"expectedResult\": \"Observable result of step 1\" }\n\
+          ],\n\
+          \"postconditions\": [\"State left after the case\"],\n\
           \"traceability\": [\"path/to/file.ext#symbol\"]\n\
         }\n\
       ],\n\
@@ -98,6 +116,7 @@ pub fn build_messages(ctx: &PromptContext<'_>) -> Vec<Message> {
         { \"path\": \"add.test.ts\", \"contents\": \"...\", \"isTest\": true }\n\
       ]\n\
     }\n\
+    Every `steps` entry is an OBJECT with `action` and `expectedResult` — never a plain string. Include at least one `negative` and one `boundary` case per covered feature.\n\
     Include `files` so the cases run in the local sandbox: the minimal source-under-test (marked isTest:false) plus one vitest spec per source file (marked isTest:true), using workspace-relative paths only (no absolute paths, no `..`). Omit `files` only when the scope has no executable behavior.\n\
     Do NOT output fields from the codebase (like architect, location, timeline, bhk_display, category, etc.) at the top level. You MUST use only the keys listed above. Do NOT reply with free-form prose, apologies, or explanations. You MUST invoke the tool.");
 
@@ -107,6 +126,7 @@ pub fn build_messages(ctx: &PromptContext<'_>) -> Vec<Message> {
 #[must_use]
 pub fn tool() -> ToolSchema {
     let priority_enum = serde_json::json!(["p0", "p1", "p2", "p3"]);
+    let type_enum = serde_json::json!(["positive", "negative", "boundary", "error", "security"]);
 
     tool_schema(
         TOOL_NAME,
@@ -118,15 +138,15 @@ pub fn tool() -> ToolSchema {
             "properties": {
                 "cases": {
                     "type": "array",
-                                        "items": {
+                    "items": {
                         "type": "object",
                         "additionalProperties": false,
                         "required": [
                             "id",
                             "title",
+                            "type",
                             "priority",
-                            "steps",
-                            "expectedResult"
+                            "steps"
                         ],
                         "properties": {
                             "id": {
@@ -135,16 +155,37 @@ pub fn tool() -> ToolSchema {
                                 "description": "Stable id, prefix `TC-`. MUST use ONLY uppercase letters, digits, hyphens, and underscores (e.g. 'TC-TEST-CARD-FOOTER' in all-caps, NOT 'TC-TEST-CARD-Footer')."
                             },
                             "title": { "type": "string", "minLength": 5, "maxLength": 200 },
+                            "type": {
+                                "type": "string",
+                                "enum": type_enum,
+                                "description": "Test design category. Each covered feature needs at least one `negative` and one `boundary` case."
+                            },
                             "priority": { "type": "string", "enum": priority_enum },
                             "preconditions": {
                                 "type": "array",
                                 "items": { "type": "string", "minLength": 1 }
                             },
+                            "testData": {
+                                "type": "string",
+                                "description": "Concrete input values / fixtures the steps rely on."
+                            },
                             "steps": {
                                 "type": "array",
-                                                                "items": { "type": "string", "minLength": 1 }
+                                "minItems": 1,
+                                "items": {
+                                    "type": "object",
+                                    "additionalProperties": false,
+                                    "required": ["action", "expectedResult"],
+                                    "properties": {
+                                        "action": { "type": "string", "minLength": 1 },
+                                        "expectedResult": { "type": "string", "minLength": 1 }
+                                    }
+                                }
                             },
-                            "expectedResult": { "type": "string", "minLength": 1 },
+                            "postconditions": {
+                                "type": "array",
+                                "items": { "type": "string", "minLength": 1 }
+                            },
                             "traceability": {
                                 "type": "array",
                                 "items": {
@@ -170,7 +211,7 @@ mod tests {
 
     #[test]
     fn version_matches_filename() {
-        assert_eq!(VERSION, "test_cases_v1");
+        assert_eq!(VERSION, "test_cases_v2");
     }
 
     #[test]
@@ -227,48 +268,70 @@ mod tests {
     }
 
     #[test]
-    fn traceability_is_optional_string_array() {
+    fn case_type_enum_matches_shared_schema() {
         let schema = tool();
-        let traceability_items = &schema.parameters_schema["properties"]["cases"]["items"]
-            ["properties"]["traceability"]["items"]["type"];
-        assert_eq!(traceability_items.as_str(), Some("string"));
-
-        let required = &schema.parameters_schema["properties"]["cases"]["items"]["required"];
-        let names: Vec<&str> = required
+        let types = &schema.parameters_schema["properties"]["cases"]["items"]["properties"]
+            ["type"]["enum"];
+        let values: Vec<&str> = types
             .as_array()
             .expect("array")
             .iter()
             .filter_map(|v| v.as_str())
             .collect();
-        assert!(!names.contains(&"traceability"));
+        assert_eq!(
+            values,
+            vec!["positive", "negative", "boundary", "error", "security"]
+        );
     }
 
     #[test]
-    fn files_array_is_optional_runnable_workspace() {
+    fn steps_are_separated_action_expected_result_objects() {
         let schema = tool();
-
-        // `files` is offered but not required (descriptive-only cases stay valid).
-        let top_required = &schema.parameters_schema["required"];
-        let required: Vec<&str> = top_required
+        let steps = &schema.parameters_schema["properties"]["cases"]["items"]["properties"]
+            ["steps"];
+        assert_eq!(steps["minItems"].as_u64(), Some(1));
+        let required: Vec<&str> = steps["items"]["required"]
             .as_array()
             .expect("array")
             .iter()
             .filter_map(|v| v.as_str())
             .collect();
-        assert_eq!(required, vec!["cases"]);
+        assert_eq!(required, vec!["action", "expectedResult"]);
+    }
 
-        // Each file mirrors the sandbox `WorkspaceFile` shape.
-        let item_required = &schema.parameters_schema["properties"]["files"]["items"]["required"];
-        let file_fields: Vec<&str> = item_required
+    #[test]
+    fn case_requires_type_but_not_legacy_expected_result() {
+        let schema = tool();
+        let required: Vec<&str> = schema.parameters_schema["properties"]["cases"]["items"]
+            ["required"]
             .as_array()
             .expect("array")
             .iter()
             .filter_map(|v| v.as_str())
             .collect();
-        assert_eq!(file_fields, vec!["path", "contents", "isTest"]);
+        assert!(required.contains(&"type"));
+        assert!(required.contains(&"steps"));
+        // v1's single top-level expectedResult is replaced by per-step results.
+        assert!(!required.contains(&"expectedResult"));
+        let props = &schema.parameters_schema["properties"]["cases"]["items"]["properties"];
+        assert!(props.get("expectedResult").is_none());
+    }
 
-        let is_test_type =
-            &schema.parameters_schema["properties"]["files"]["items"]["properties"]["isTest"]["type"];
-        assert_eq!(is_test_type.as_str(), Some("boolean"));
+    #[test]
+    fn prompt_mandates_negative_and_boundary_cases() {
+        assert!(SYSTEM_INSTRUCTIONS.contains("at least one `negative` case"));
+        assert!(SYSTEM_INSTRUCTIONS.contains("at least one `boundary` case"));
+    }
+
+    #[test]
+    fn files_array_contract_is_byte_identical_to_v1() {
+        // The sandbox runner contract must not drift: the v2 `files`
+        // schema is the same JSON value as v1's.
+        let v1 = super::super::test_cases_v1::tool();
+        let v2 = tool();
+        assert_eq!(
+            v1.parameters_schema["properties"]["files"],
+            v2.parameters_schema["properties"]["files"]
+        );
     }
 }

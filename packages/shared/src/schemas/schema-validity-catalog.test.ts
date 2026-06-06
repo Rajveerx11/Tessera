@@ -444,8 +444,11 @@ describe('Schema validity catalog', () => {
           {
             id: 'TC-001',
             title: 'Login works',
-            steps: ['Open login page', 'Submit valid credentials'],
-            expectedResult: 'User signs in',
+            type: 'positive',
+            steps: [
+              { action: 'Open login page', expectedResult: 'Login form renders' },
+              { action: 'Submit valid credentials', expectedResult: 'User signs in' },
+            ],
             priority: 'p1',
           },
         ],
@@ -471,7 +474,15 @@ describe('Schema validity catalog', () => {
     });
     expectInvalid(TestCasePrioritySchema, 'p4');
     expectInvalid(TestCaseSchema, {
-      cases: [{ id: 'TC-001', title: 'Login works', steps: ['x'], expectedResult: 'ok', priority: 'p4' }],
+      cases: [
+        {
+          id: 'TC-001',
+          title: 'Login works',
+          type: 'positive',
+          steps: [{ action: 'x', expectedResult: 'ok' }],
+          priority: 'p4',
+        },
+      ],
     });
     expectInvalid(TestPlanSchema, {
       summary: 'Summary',

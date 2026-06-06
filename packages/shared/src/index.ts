@@ -17,6 +17,7 @@ export * from './types/board';
 // Zod schemas (inferred TS types are re-exported alongside each schema)
 export * from './schemas/artifact.schema';
 export * from './schemas/auth.schema';
+export * from './schemas/bug-report.schema';
 export * from './schemas/code-chunk.schema';
 export * from './schemas/defect-report.schema';
 export * from './schemas/hardware.schema';

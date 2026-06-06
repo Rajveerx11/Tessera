@@ -191,8 +191,13 @@ function buildTestCasesArtifact(projectName: string): MockArtifactState {
           {
             id: 'TC-LOGIN-1',
             title: 'successful login returns a token',
-            steps: ['POST /auth/login with valid credentials'],
-            expectedResult: '200 with a session token',
+            type: 'positive',
+            steps: [
+              {
+                action: 'POST /auth/login with valid credentials',
+                expectedResult: '200 with a session token',
+              },
+            ],
             priority: 'p0',
           },
         ],
@@ -213,7 +218,7 @@ function buildTestCasesArtifact(projectName: string): MockArtifactState {
       updatedAt: timestamp,
       provider: 'ollama',
       model: 'qwen2.5-coder:7b',
-      promptVersion: 'test_cases_v1',
+      promptVersion: 'test_cases_v2',
       inputTokens: 256,
       outputTokens: 192,
     },

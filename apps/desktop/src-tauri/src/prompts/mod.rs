@@ -14,10 +14,15 @@
 //!   strategy, risk matrix, entry/exit criteria.
 //! - [`test_cases_v1`] — individual test cases bound to specific
 //!   functions / endpoints.
+//! - [`test_cases_v2`] — v1 plus `TestRail` separated steps
+//!   (`{ action, expectedResult }`), case `type`, `testData`,
+//!   `postconditions`; the runnable `files[]` contract is unchanged.
 //! - [`defect_report_v1`] — static-analysis findings (severity,
 //!   category, location, suggested fix, confidence).
 //! - [`bug_report_v1`] — runtime-issue tracking docs formatted for
 //!   issue-tracker import.
+//! - [`bug_report_v2`] — v1 plus severity↔priority split (5-level
+//!   severity), `reproducibility`, `workaround`, `component`.
 //!
 //! Every prompt:
 //! - Returns `Vec<Message>` ready to feed into an `LlmProvider`.
@@ -33,9 +38,11 @@ use crate::providers::llm::types::{Content, Message, ToolSchema};
 use crate::services::chunking_service::Chunk;
 
 pub mod bug_report_v1;
+pub mod bug_report_v2;
 pub mod context_md_v1;
 pub mod defect_report_v1;
 pub mod test_cases_v1;
+pub mod test_cases_v2;
 pub mod test_plan_v1;
 
 #[cfg(test)]
@@ -143,6 +150,39 @@ pub fn system_text(text: impl Into<String>) -> Message {
         role: crate::providers::llm::types::Role::System,
         content: vec![Content::Text { text: text.into() }],
     }
+}
+
+/// JSON-Schema for the runnable `files[]` workspace carried on a
+/// test-cases artifact — the contract the sandbox runner consumes
+/// (`RunInput` / `sandbox_service`). Shared by `test_cases_v1` and
+/// `test_cases_v2` so the contract cannot drift between prompt
+/// versions; both modules' tool snapshots lock the emitted value.
+#[must_use]
+pub fn runnable_files_schema() -> serde_json::Value {
+    serde_json::json!({
+        "type": "array",
+        "description": "Runnable workspace mirroring the cases: minimal source-under-test plus generated vitest specs, so the local sandbox can execute them. Optional — omit for descriptive-only cases.",
+        "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["path", "contents", "isTest"],
+            "properties": {
+                "path": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "Workspace-relative path, e.g. `src/add.ts` or `add.test.ts`. No absolute paths, no `..`."
+                },
+                "contents": {
+                    "type": "string",
+                    "description": "Full file contents."
+                },
+                "isTest": {
+                    "type": "boolean",
+                    "description": "true for a generated vitest spec; false for source-under-test."
+                }
+            }
+        }
+    })
 }
 
 /// Helper: produce a `ToolSchema` from a name, description, and a

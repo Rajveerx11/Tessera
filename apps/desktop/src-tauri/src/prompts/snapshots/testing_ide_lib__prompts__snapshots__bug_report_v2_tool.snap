@@ -1,0 +1,102 @@
+---
+source: src/prompts/snapshots.rs
+expression: "bug_report_v2::tool().parameters_schema"
+---
+additionalProperties: false
+properties:
+  bugs:
+    items:
+      additionalProperties: false
+      properties:
+        actualBehavior:
+          minLength: 1
+          type: string
+        component:
+          description: Affected module / subsystem when known.
+          type: string
+        environment:
+          description: OS / runtime / version stack when known.
+          type: string
+        evidenceSnippet:
+          description: Short verbatim quote of the offending code.
+          type: string
+        expectedBehavior:
+          minLength: 1
+          type: string
+        id:
+          description: "Stable id, prefix `BUG-`. MUST use ONLY uppercase letters, digits, hyphens, and underscores (e.g. 'BUG-SESSION-LEAK' in all-caps, NOT 'BUG-Session-Leak')."
+          pattern: "^BUG-[A-Z0-9_-]+$"
+          type: string
+        priority:
+          description: "Urgency of the fix, independent of impact."
+          enum:
+            - p0
+            - p1
+            - p2
+            - p3
+          type: string
+        reproducibility:
+          description: How reliably the bug occurs.
+          enum:
+            - always
+            - intermittent
+            - once
+          type: string
+        rootCause:
+          additionalProperties: false
+          properties:
+            endLine:
+              minimum: 1
+              type: integer
+            explanation:
+              minLength: 10
+              type: string
+            fileHint:
+              type: string
+            startLine:
+              minimum: 1
+              type: integer
+            symbol:
+              minLength: 1
+              type: string
+          required:
+            - symbol
+            - explanation
+          type: object
+        severity:
+          description: "Impact on the system, independent of fix urgency."
+          enum:
+            - blocker
+            - critical
+            - major
+            - minor
+            - trivial
+          type: string
+        stepsToReproduce:
+          items:
+            minLength: 1
+            type: string
+          minItems: 1
+          type: array
+        title:
+          maxLength: 200
+          minLength: 10
+          type: string
+        workaround:
+          description: User-side mitigation when one exists.
+          type: string
+      required:
+        - id
+        - title
+        - severity
+        - priority
+        - reproducibility
+        - stepsToReproduce
+        - expectedBehavior
+        - actualBehavior
+        - rootCause
+      type: object
+    type: array
+required:
+  - bugs
+type: object

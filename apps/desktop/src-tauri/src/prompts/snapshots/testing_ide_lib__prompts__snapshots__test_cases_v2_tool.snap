@@ -1,0 +1,101 @@
+---
+source: src/prompts/snapshots.rs
+expression: "test_cases_v2::tool().parameters_schema"
+---
+additionalProperties: false
+properties:
+  cases:
+    items:
+      additionalProperties: false
+      properties:
+        id:
+          description: "Stable id, prefix `TC-`. MUST use ONLY uppercase letters, digits, hyphens, and underscores (e.g. 'TC-TEST-CARD-FOOTER' in all-caps, NOT 'TC-TEST-CARD-Footer')."
+          pattern: "^TC-[A-Z0-9_-]+$"
+          type: string
+        postconditions:
+          items:
+            minLength: 1
+            type: string
+          type: array
+        preconditions:
+          items:
+            minLength: 1
+            type: string
+          type: array
+        priority:
+          enum:
+            - p0
+            - p1
+            - p2
+            - p3
+          type: string
+        steps:
+          items:
+            additionalProperties: false
+            properties:
+              action:
+                minLength: 1
+                type: string
+              expectedResult:
+                minLength: 1
+                type: string
+            required:
+              - action
+              - expectedResult
+            type: object
+          minItems: 1
+          type: array
+        testData:
+          description: Concrete input values / fixtures the steps rely on.
+          type: string
+        title:
+          maxLength: 200
+          minLength: 5
+          type: string
+        traceability:
+          items:
+            description: "Source reference such as `src/routes/auth.ts#login`."
+            minLength: 1
+            type: string
+          type: array
+        type:
+          description: "Test design category. Each covered feature needs at least one `negative` and one `boundary` case."
+          enum:
+            - positive
+            - negative
+            - boundary
+            - error
+            - security
+          type: string
+      required:
+        - id
+        - title
+        - type
+        - priority
+        - steps
+      type: object
+    type: array
+  files:
+    description: "Runnable workspace mirroring the cases: minimal source-under-test plus generated vitest specs, so the local sandbox can execute them. Optional — omit for descriptive-only cases."
+    items:
+      additionalProperties: false
+      properties:
+        contents:
+          description: Full file contents.
+          type: string
+        isTest:
+          description: true for a generated vitest spec; false for source-under-test.
+          type: boolean
+        path:
+          description: "Workspace-relative path, e.g. `src/add.ts` or `add.test.ts`. No absolute paths, no `..`."
+          minLength: 1
+          type: string
+      required:
+        - path
+        - contents
+        - isTest
+      type: object
+    type: array
+required:
+  - cases
+type: object

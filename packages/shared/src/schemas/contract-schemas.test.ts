@@ -29,6 +29,7 @@ import {
   CoverageLineSchema,
   RunResultSchema,
   TestCaseSchema,
+  BugReportSchema,
 } from '../index';
 
 describe('RegisterSchema', () => {
@@ -692,32 +693,66 @@ describe('RunResultSchema', () => {
 });
 
 describe('TestCaseSchema', () => {
+  /** Minimal valid v2 case — separated steps + case type. */
+  const v2Case = {
+    id: 'TC-ADD-1',
+    title: 'adds two numbers',
+    type: 'positive',
+    priority: 'p1',
+    steps: [{ action: 'call add(1, 2)', expectedResult: 'returns 3' }],
+  };
+
   it('accepts a descriptive-only artifact (no runnable files)', () => {
+    const parsed = TestCaseSchema.parse({ cases: [v2Case] });
+    expect(parsed.files).toBeUndefined();
+    expect(parsed.cases[0]?.steps[0]?.expectedResult).toBe('returns 3');
+  });
+
+  it('round-trips the full v2 field set', () => {
     const parsed = TestCaseSchema.parse({
       cases: [
         {
-          id: 'TC-ADD-1',
-          title: 'adds two numbers',
-          steps: ['call add(1, 2)'],
-          expectedResult: 'returns 3',
-          priority: 'p1',
+          ...v2Case,
+          type: 'boundary',
+          preconditions: ['add is exported'],
+          testData: 'a = Number.MAX_SAFE_INTEGER, b = 1',
+          postconditions: ['no global state mutated'],
+          traceability: ['src/add.ts#add'],
         },
       ],
     });
-    expect(parsed.files).toBeUndefined();
+    expect(parsed.cases[0]?.type).toBe('boundary');
+    expect(parsed.cases[0]?.testData).toContain('MAX_SAFE_INTEGER');
+    expect(parsed.cases[0]?.postconditions).toHaveLength(1);
+  });
+
+  it('rejects v1-style plain-string steps', () => {
+    expect(() =>
+      TestCaseSchema.parse({
+        cases: [{ ...v2Case, steps: ['call add(1, 2)'] }],
+      }),
+    ).toThrow();
+  });
+
+  it('rejects a case missing the type discriminator', () => {
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars -- destructure to omit `type`
+    const { type: _type, ...withoutType } = v2Case;
+    expect(() => TestCaseSchema.parse({ cases: [withoutType] })).toThrow();
+  });
+
+  it('rejects an empty steps array (minItems 1)', () => {
+    expect(() => TestCaseSchema.parse({ cases: [{ ...v2Case, steps: [] }] })).toThrow();
+  });
+
+  it('rejects unknown case types', () => {
+    expect(() =>
+      TestCaseSchema.parse({ cases: [{ ...v2Case, type: 'smoke' }] }),
+    ).toThrow();
   });
 
   it('accepts a runnable workspace mirroring the sandbox WorkspaceFile shape', () => {
     const parsed = TestCaseSchema.parse({
-      cases: [
-        {
-          id: 'TC-ADD-1',
-          title: 'adds two numbers',
-          steps: ['call add(1, 2)'],
-          expectedResult: 'returns 3',
-          priority: 'p1',
-        },
-      ],
+      cases: [v2Case],
       files: [
         { path: 'src/add.ts', contents: 'export const add = (a, b) => a + b;', isTest: false },
         { path: 'add.test.ts', contents: "import { test, expect } from 'vitest';", isTest: true },
@@ -730,18 +765,82 @@ describe('TestCaseSchema', () => {
   it('rejects a file missing the isTest discriminator', () => {
     expect(() =>
       TestCaseSchema.parse({
-        cases: [
-          {
-            id: 'TC-ADD-1',
-            title: 'adds two numbers',
-            steps: ['call add(1, 2)'],
-            expectedResult: 'returns 3',
-            priority: 'p1',
-          },
-        ],
+        cases: [v2Case],
         files: [{ path: 'src/add.ts', contents: 'x' }],
       }),
     ).toThrow();
+  });
+});
+
+describe('BugReportSchema', () => {
+  /** Minimal valid v2 bug — split severity/priority + reproducibility. */
+  const v2Bug = {
+    id: 'BUG-SAVE-RACE',
+    title: 'Report save races under load',
+    severity: 'major',
+    priority: 'p1',
+    reproducibility: 'intermittent',
+    stepsToReproduce: ['1. Open the app', '2. Save twice quickly'],
+    expectedBehavior: 'One report row is written',
+    actualBehavior: 'Two rows are written',
+    rootCause: { symbol: 'saveReport', explanation: 'No write lock around the insert.' },
+  };
+
+  it('accepts a minimal v2 bug', () => {
+    const parsed = BugReportSchema.parse({ bugs: [v2Bug] });
+    expect(parsed.bugs[0]?.severity).toBe('major');
+    expect(parsed.bugs[0]?.priority).toBe('p1');
+  });
+
+  it('round-trips the full v2 field set', () => {
+    const parsed = BugReportSchema.parse({
+      bugs: [
+        {
+          ...v2Bug,
+          severity: 'blocker',
+          environment: 'Windows 11 / Node 22',
+          component: 'report-service',
+          workaround: 'Save once and wait for the toast',
+          rootCause: {
+            symbol: 'saveReport',
+            startLine: 10,
+            endLine: 20,
+            fileHint: 'src/report.ts',
+            explanation: 'No write lock around the insert.',
+          },
+          evidenceSnippet: 'await insert(report); await insert(report);',
+        },
+      ],
+    });
+    expect(parsed.bugs[0]?.severity).toBe('blocker');
+    expect(parsed.bugs[0]?.component).toBe('report-service');
+    expect(parsed.bugs[0]?.rootCause.fileHint).toBe('src/report.ts');
+  });
+
+  it('rejects an empty stepsToReproduce (minItems 1)', () => {
+    expect(() =>
+      BugReportSchema.parse({ bugs: [{ ...v2Bug, stepsToReproduce: [] }] }),
+    ).toThrow();
+  });
+
+  it('rejects v1 4-level severity value sets missing blocker', () => {
+    expect(() => BugReportSchema.parse({ bugs: [{ ...v2Bug, severity: 'high' }] })).toThrow();
+  });
+
+  it('rejects a bug missing the priority split', () => {
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars -- destructure to omit `priority`
+    const { priority: _priority, ...withoutPriority } = v2Bug;
+    expect(() => BugReportSchema.parse({ bugs: [withoutPriority] })).toThrow();
+  });
+
+  it('rejects unknown reproducibility values', () => {
+    expect(() =>
+      BugReportSchema.parse({ bugs: [{ ...v2Bug, reproducibility: 'sometimes' }] }),
+    ).toThrow();
+  });
+
+  it('rejects a lowercase-mixed bug id', () => {
+    expect(() => BugReportSchema.parse({ bugs: [{ ...v2Bug, id: 'BUG-Save-Race' }] })).toThrow();
   });
 });
 
