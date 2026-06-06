@@ -1326,6 +1326,86 @@ fn normalize_key_name(key: &str) -> String {
         .to_ascii_lowercase()
 }
 
+/// Second re-nest pass for keys that belong to an array-of-objects item
+/// schema: small models flatten a single `steps[]` entry's `action` /
+/// `expectedResult` onto the test case itself, which
+/// `additionalProperties: false` rejects. Lift every unknown key claimed
+/// by exactly one array-of-objects property into a single new element of
+/// that array — but only when the array is absent or empty, so elements
+/// the model actually emitted are never mutated. Ambiguous keys (claimed
+/// by more than one array property) are left for validation to report.
+fn renest_flattened_array_items(
+    obj: &mut serde_json::Map<String, JsonValue>,
+    properties: &serde_json::Map<String, JsonValue>,
+) {
+    let unknown_keys: Vec<String> = obj
+        .keys()
+        .filter(|k| !properties.contains_key(*k))
+        .cloned()
+        .collect();
+
+    let mut lifted: std::collections::BTreeMap<String, serde_json::Map<String, JsonValue>> =
+        std::collections::BTreeMap::new();
+    for key in unknown_keys {
+        let norm_key = normalize_key_name(&key);
+        let mut owners = properties.iter().filter(|(_, prop_schema)| {
+            prop_schema.get("type").and_then(|t| t.as_str()) == Some("array")
+                && prop_schema
+                    .get("items")
+                    .and_then(|i| i.get("properties"))
+                    .and_then(|p| p.as_object())
+                    .is_some_and(|nested| {
+                        nested.keys().any(|nk| normalize_key_name(nk) == norm_key)
+                    })
+        });
+        let Some((owner_name, _)) = owners.next() else {
+            continue;
+        };
+        if owners.next().is_some() {
+            continue;
+        }
+        let owner_name = owner_name.clone();
+        let target_is_liftable = match obj.get(&owner_name) {
+            None => true,
+            Some(JsonValue::Array(existing)) => existing.is_empty(),
+            Some(_) => false,
+        };
+        if !target_is_liftable {
+            continue;
+        }
+        if let Some(val) = obj.remove(&key) {
+            lifted.entry(owner_name).or_default().insert(key, val);
+        }
+    }
+
+    for (owner_name, item) in lifted {
+        obj.insert(owner_name, JsonValue::Array(vec![JsonValue::Object(item)]));
+    }
+}
+
+/// Coerce structured values in string-typed fields: small models emit
+/// JSON objects for fields like `testData` (`{"email": "...",
+/// "password": "..."}`) where the schema wants a string. Serialize the
+/// value to its compact JSON text so a richer-but-wrong-shaped value
+/// validates instead of hard-failing the generation. Nulls are left for
+/// validation to report.
+fn coerce_structured_strings(
+    obj: &mut serde_json::Map<String, JsonValue>,
+    properties: &serde_json::Map<String, JsonValue>,
+) {
+    for (schema_key, property_schema) in properties {
+        if property_schema.get("type").and_then(|t| t.as_str()) != Some("string") {
+            continue;
+        }
+        if let Some(val) = obj.get_mut(schema_key) {
+            if !matches!(val, JsonValue::String(_) | JsonValue::Null) {
+                let text = val.to_string();
+                *val = JsonValue::String(text);
+            }
+        }
+    }
+}
+
 fn normalize_value_recursively(data: &mut JsonValue, schema: &JsonValue) {
     match data {
         JsonValue::Object(obj) => {
@@ -1405,6 +1485,16 @@ fn normalize_value_recursively(data: &mut JsonValue, schema: &JsonValue) {
                 }
             }
 
+            // 2b. Re-nest flattened array-item fields: a single
+            // `steps[]` entry's keys emitted at the case level
+            // (`action` / `expectedResult` on a test case) become one
+            // new element of that array.
+            renest_flattened_array_items(obj, properties);
+
+            // 2c. Coerce structured values in string-typed fields
+            // (e.g. `testData` emitted as a JSON object of inputs).
+            coerce_structured_strings(obj, properties);
+
             // 3. Missing arrays normalization: Insert [] for required array fields if absent
             if let Some(required) = schema.get("required").and_then(|v| v.as_array()) {
                 for req_key_val in required {
@@ -1447,9 +1537,11 @@ fn normalize_value_recursively(data: &mut JsonValue, schema: &JsonValue) {
 /// casing differences, and re-nest flattened nested-object fields.
 ///
 /// Small / non-tool-trained LLMs frequently omit object keys whose value would be an empty array,
-/// emit keys with incorrect casing (`camelCase` instead of `snake_case`), or flatten a nested
+/// emit keys with incorrect casing (`camelCase` instead of `snake_case`), flatten a nested
 /// object's keys onto its parent (e.g. `location.symbol` emitted as a top-level `symbol` on a
-/// defect finding). This function normalizes all three recursively.
+/// defect finding), or flatten a single array element's keys onto its parent (e.g. one step's
+/// `action` / `expectedResult` emitted on the test case). This function normalizes all four
+/// recursively.
 pub(crate) fn normalize_missing_arrays(data: &mut JsonValue, tool: &ToolSchema) {
     normalize_value_recursively(data, &tool.parameters_schema);
 }
@@ -2583,6 +2675,86 @@ mod tests {
         );
         assert!(bug.get("symbol").is_none());
         assert!(bug.get("file_hint").is_none());
+    }
+
+    #[test]
+    fn normalize_renests_flattened_test_case_step_fields() {
+        // Reproduces the golden-suite failure on qwen2.5-coder:1.5b: the
+        // model emitted a single step's `action` / `expectedResult` at
+        // the case level instead of inside `steps[]`, which
+        // `additionalProperties: false` rejected with "Additional
+        // properties are not allowed ('action', 'expectedResult' were
+        // unexpected)".
+        let schema = test_cases_v2::tool();
+        let mut data = serde_json::json!({
+            "cases": [{
+                "id": "TC-LOGIN-SUCCESS",
+                "title": "Login succeeds with valid credentials",
+                "type": "positive",
+                "priority": "p1",
+                "action": "Call login with valid credentials",
+                "expectedResult": "A session token is returned"
+            }]
+        });
+        normalize_missing_arrays(&mut data, &schema);
+        validate_tool_output(&schema, &data).expect("flattened step heals to valid");
+        let case = &data["cases"][0];
+        assert_eq!(case["steps"][0]["action"], "Call login with valid credentials");
+        assert_eq!(case["steps"][0]["expectedResult"], "A session token is returned");
+        assert!(case.get("action").is_none());
+        assert!(case.get("expectedResult").is_none());
+    }
+
+    #[test]
+    fn normalize_coerces_structured_test_data_to_string() {
+        // Reproduces the golden-suite failure on qwen2.5-coder:1.5b: the
+        // model emitted `testData` as a JSON object of inputs
+        // (`{"email": "...", "password": "..."}`) where the schema wants
+        // a string — "is not of type \"string\"".
+        let schema = test_cases_v2::tool();
+        let mut data = serde_json::json!({
+            "cases": [{
+                "id": "TC-LOGIN-SUCCESS",
+                "title": "Login succeeds with valid credentials",
+                "type": "positive",
+                "priority": "p1",
+                "testData": { "email": "user@example.com", "password": "securePassword" },
+                "steps": [
+                    { "action": "Call login", "expectedResult": "Token returned" }
+                ]
+            }]
+        });
+        normalize_missing_arrays(&mut data, &schema);
+        validate_tool_output(&schema, &data).expect("structured testData heals to valid");
+        let test_data = data["cases"][0]["testData"].as_str().expect("string");
+        assert!(test_data.contains("user@example.com"));
+        // Plain string values are untouched by the coercion pass.
+        assert_eq!(data["cases"][0]["title"], "Login succeeds with valid credentials");
+    }
+
+    #[test]
+    fn normalize_array_item_renest_does_not_clobber_existing_elements() {
+        // A populated steps[] array must never be mutated by the lift —
+        // the stray case-level keys stay put and validation reports them.
+        let schema = test_cases_v2::tool();
+        let mut data = serde_json::json!({
+            "cases": [{
+                "id": "TC-LOGIN-SUCCESS",
+                "title": "Login succeeds with valid credentials",
+                "type": "positive",
+                "priority": "p1",
+                "steps": [
+                    { "action": "Real step", "expectedResult": "Real result" }
+                ],
+                "action": "Stray flattened action"
+            }]
+        });
+        normalize_missing_arrays(&mut data, &schema);
+        let case = &data["cases"][0];
+        assert_eq!(case["steps"].as_array().map(Vec::len), Some(1));
+        assert_eq!(case["steps"][0]["action"], "Real step");
+        assert_eq!(case["action"], "Stray flattened action");
+        assert!(validate_tool_output(&schema, &data).is_err());
     }
 
     #[test]
