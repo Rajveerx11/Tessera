@@ -126,6 +126,7 @@ pub fn run() {
             commands::hardware::detect_hardware,
             // Ollama bootstrap command (Phase 7)
             commands::ollama::check_ollama_status,
+            commands::ollama::start_ollama_server,
             // Sandbox test-runner commands (sandbox runner Phase 2 + Phase 5 Stop)
             commands::sandbox::run_test_sandbox,
             commands::sandbox::cancel_test_sandbox,

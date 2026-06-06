@@ -1096,6 +1096,7 @@ fn remove_js_trailing_commas(raw: &str) -> String {
     out
 }
 
+#[allow(clippy::too_many_lines)]
 async fn retrieve_chunks(
     request: &GenerationRequest,
     deps: &GenerationDeps<'_>,
@@ -1132,7 +1133,63 @@ async fn retrieve_chunks(
         return Ok(Vec::new());
     }
 
-    let mut embeddings = deps.embeddings.embed(vec![effective_query]).await?;
+    let mut embeddings = match deps.embeddings.embed(vec![effective_query.clone()]).await {
+        Ok(emb) => emb,
+        Err(crate::providers::llm::error::LlmError::ConnectionFailed { provider: "ollama", message }) => {
+            tracing::warn!("Local Ollama embedding server is offline. Attempting auto-start...");
+
+            let mut cmd = std::process::Command::new("ollama");
+            cmd.arg("serve");
+            crate::utils::process::configure_detached_process(&mut cmd);
+
+            if cmd.spawn().is_ok() {
+                let mut retry_success = false;
+                let mut last_err = message;
+                let mut resolved_embeddings = Vec::new();
+
+                for i in 0..10 {
+                    tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+                    match deps.embeddings.embed(vec![effective_query.clone()]).await {
+                        Ok(emb) => {
+                            tracing::info!("Ollama server auto-started successfully after {}s.", i + 1);
+                            resolved_embeddings = emb;
+                            retry_success = true;
+                            break;
+                        }
+                        Err(crate::providers::llm::error::LlmError::ConnectionFailed { message: err_msg, .. }) => {
+                            last_err = err_msg;
+                        }
+                        Err(other_err) => {
+                            return Err(AppError::Llm(other_err));
+                        }
+                    }
+                }
+
+                if !retry_success {
+                    return Err(AppError::Llm(crate::providers::llm::error::LlmError::ConnectionFailed {
+                        provider: "ollama",
+                        message: format!(
+                            "Local Ollama server is not running and could not be started automatically. \
+                             Please verify Ollama is installed, or open Settings and click 'Start Server' for Ollama (local) to enable codebase search. \
+                             Original error: {last_err}"
+                        ),
+                    }));
+                }
+                resolved_embeddings
+            } else {
+                return Err(AppError::Llm(crate::providers::llm::error::LlmError::ConnectionFailed {
+                    provider: "ollama",
+                    message: format!(
+                        "Local Ollama server is not running and failed to auto-start (verify 'ollama' is in your PATH). \
+                         Please open Settings and click 'Start Server' for Ollama (local). \
+                         Original error: {message}"
+                    ),
+                }));
+            }
+        }
+        Err(other_err) => return Err(AppError::Llm(other_err)),
+    };
+
     let Some(query_vec) = embeddings.pop() else {
         return Ok(Vec::new());
     };

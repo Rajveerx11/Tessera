@@ -44,27 +44,68 @@ pub fn stream_chat_completions(req: ChatRequest<'_>) -> ChunkStream {
     let provider = req.provider;
     let endpoint = req.endpoint.to_string();
     let headers = req.headers;
-    let body = req.body;
+    let mut body = req.body.clone();
     let client = req.client.clone();
 
     let s = try_stream! {
-        let response = client
+        let mut response = client
             .post(&endpoint)
-            .headers(headers)
+            .headers(headers.clone())
             .json(&body)
             .send()
             .await
             .map_err(|e| LlmError::from_reqwest(provider, &e))?;
 
-        let status = response.status();
+        let mut status = response.status();
+
+        // Check if the request failed and contains tool specifications that we can strip.
+        if !status.is_success() && body.get("tools").is_some() {
+            let headers_in = response.headers().clone();
+            let text = response.text().await.unwrap_or_default();
+            let text_lower = text.to_lowercase();
+
+            // If the error suggests that the model or endpoint doesn't support tools/functions
+            if text_lower.contains("tool")
+                || text_lower.contains("function")
+                || text_lower.contains("tool_choice")
+                || text_lower.contains("tool choice")
+                || text_lower.contains("endpoints found")
+            {
+                tracing::warn!(
+                    provider = %provider,
+                    "Model failed with tool error: {}. Retrying without tool use.",
+                    text
+                );
+
+                // Strip tools and tool_choice
+                if let serde_json::Value::Object(ref mut obj) = body {
+                    obj.remove("tools");
+                    obj.remove("tool_choice");
+                }
+
+                // Retry request
+                response = client
+                    .post(&endpoint)
+                    .headers(headers.clone())
+                    .json(&body)
+                    .send()
+                    .await
+                    .map_err(|e| LlmError::from_reqwest(provider, &e))?;
+                status = response.status();
+            } else {
+                // If it wasn't a tool error, propagate the original error
+                Err(map_http_error(provider, status, &headers_in, &text))?;
+                // Unreachable: `Err(...)?` propagates above.
+                unreachable!("yielded error above")
+            }
+        }
+
         let headers_in = response.headers().clone();
         let body_stream = if status.is_success() {
             response.bytes_stream()
         } else {
             let text = response.text().await.unwrap_or_default();
             Err(map_http_error(provider, status, &headers_in, &text))?;
-            // Unreachable: `Err(...)?` propagates above. Compiler can't
-            // see that, so we feed it a value that satisfies the type.
             unreachable!("yielded error above")
         };
 
@@ -392,6 +433,7 @@ fn parse_finish_reason(raw: &str) -> FinishReason {
 mod tests {
     use super::*;
     use crate::providers::llm::types::Content;
+    use mockito::Server;
 
     fn empty_request() -> GenerateRequest {
         GenerateRequest {
@@ -598,5 +640,62 @@ mod tests {
             } => assert_eq!(secs, 42),
             other => panic!("expected RateLimited with retry_after, got {other:?}"),
         }
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_tool_fallback_on_unsupported_model() {
+        let mut server = Server::new_async().await;
+
+        // Mock 1: Tool-based request fails with a 404 No endpoints found that support tool use.
+        let mock_fail = server
+            .mock("POST", "/v1/chat/completions")
+            .with_status(404)
+            .with_body(r#"{"error":{"message":"No endpoints found that support tool use. Try disabling \"emit_project_context\"","code":404}}"#)
+            .create_async()
+            .await;
+
+        // Mock 2: Retried request without tools succeeds.
+        let mock_success = server
+            .mock("POST", "/v1/chat/completions")
+            .match_body(mockito::Matcher::PartialJson(serde_json::json!({
+                "model": "google/gemma-2-9b-it",
+                "stream": true,
+                "response_format": { "type": "json_object" }
+            })))
+            .with_status(200)
+            .with_body("data: {\"choices\":[{\"delta\":{\"content\":\"{\\\"summary\\\": \\\"salvaged json\\\"}\"}}]}\n\ndata: {\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}]}\n\n")
+            .create_async()
+            .await;
+
+        let mut req = empty_request();
+        req.model = "google/gemma-2-9b-it".into();
+        req.tools = vec![ToolSchema {
+            name: "emit_project_context".into(),
+            description: "Emit project context.".into(),
+            parameters_schema: serde_json::json!({ "type": "object" }),
+        }];
+
+        let headers = HeaderMap::new();
+        let body = build_request_payload(&req, true);
+        let client = Client::new();
+
+        let mut stream = stream_chat_completions(ChatRequest {
+            provider: "test-fallback",
+            endpoint: &format!("{}/v1/chat/completions", server.url()),
+            headers,
+            body,
+            client: &client,
+        });
+
+        let mut text = String::new();
+        while let Some(chunk) = stream.next().await {
+            if let Chunk::TextDelta(t) = chunk.expect("chunk") {
+                text.push_str(&t);
+            }
+        }
+
+        assert_eq!(text, "{\"summary\": \"salvaged json\"}");
+        mock_fail.assert_async().await;
+        mock_success.assert_async().await;
     }
 }
