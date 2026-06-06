@@ -1,0 +1,33 @@
+# Repository Guidelines
+
+## Project Structure & Module Organization
+
+Tessera is a local-first AI testing IDE built as a Tauri desktop app. The React/TypeScript renderer lives in `apps/desktop/src`, with UI components, stores, utilities, assets, and frontend tests colocated there. The Rust backend lives in `apps/desktop/src-tauri/src`; keep commands thin, put orchestration in `services`, data access in `repositories`, provider integrations in `providers`, and prompt logic in `prompts`. Shared schemas and types are in `packages/shared/src`; shared UI primitives are in `packages/ui/src`. Supporting material lives in `docs/`, `plan/`, `rules/`, and `tools/scripts/`.
+
+## Build, Test, and Development Commands
+
+- `pnpm install`: install workspace dependencies using pnpm 10.
+- `pnpm dev`: run the monorepo development targets through Turbo.
+- `pnpm build`: build all workspace packages and apps.
+- `pnpm lint`: run lint checks across the workspace.
+- `pnpm typecheck`: run TypeScript type checks.
+- `pnpm test`: run the workspace test suite.
+- `pnpm --filter @testing-ide/desktop test:rust`: run Rust tests for the Tauri backend.
+- `pnpm services:up` / `pnpm services:down`: start or stop local support services.
+- `pnpm bootstrap:ollama`: prepare the default local Ollama setup.
+
+## Coding Style & Naming Conventions
+
+Use TypeScript, React, ESLint, and Vitest conventions in frontend code. Prefer PascalCase for React components, camelCase for functions and variables, and kebab-case for route or asset filenames when applicable. Rust code should be formatted with `rustfmt`, pass `clippy`, and use snake_case for modules, functions, and fields. Preserve the existing backend layering: commands validate and delegate, services coordinate behavior, repositories own SQL, and providers isolate external APIs.
+
+## Testing Guidelines
+
+Frontend and shared package tests use Vitest and generally follow `*.test.ts` or colocated test naming. End-to-end coverage uses Playwright under `apps/desktop/e2e`. Rust unit tests are colocated with modules, with integration tests under `apps/desktop/src-tauri/tests`. Ollama integration tests are opt-in; set the required environment flags before running them. When changing schemas, prompts, provider payloads, or IPC contracts, add tests that cover malformed and model-specific edge cases.
+
+## Commit & Pull Request Guidelines
+
+Git history uses concise Conventional Commit style, such as `fix: ...`, `feat: ...`, `docs: ...`, or scoped variants like `fix(sandbox): ...`. PRs should include a short problem statement, the important implementation details, verification commands run, and screenshots or recordings for visible UI changes. Call out changes that affect model providers, sandbox behavior, persistence, or configuration.
+
+## Security & Configuration Tips
+
+Do not commit API keys, tokens, or user secrets. Keep local configuration in ignored environment files. The app is local-first and defaults to local providers where possible; document any new network access, sandbox permission, or secret-storage requirement in the PR.

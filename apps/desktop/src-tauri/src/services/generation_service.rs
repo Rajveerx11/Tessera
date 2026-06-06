@@ -1958,6 +1958,40 @@ mod tests {
     }
 
     #[test]
+    fn normalize_js_strings_drops_escaped_single_quote_backslash() {
+        // `\'` is a legal JS escape but not a legal JSON escape — the
+        // backslash must be dropped, in both quote styles.
+        assert_eq!(
+            normalize_js_strings(r"{summary: 'it\'s a test'}"),
+            r#"{summary: "it's a test"}"#
+        );
+        assert_eq!(
+            normalize_js_strings(r#"{summary: "it\'s a test"}"#),
+            r#"{summary: "it's a test"}"#
+        );
+        // `\"` and `\\` are valid JSON escapes and must survive untouched.
+        assert_eq!(
+            normalize_js_strings(r#"{summary: "say \"hi\" \\ there"}"#),
+            r#"{summary: "say \"hi\" \\ there"}"#
+        );
+    }
+
+    #[test]
+    fn salvage_tool_args_recovers_escaped_single_quotes_in_js_strings() {
+        let text = r"<tool_code>
+            console.log(default_api.emit_test_plan({
+                summary: 'it\'s a test of the parser\'s escapes',
+                strategy: 'Verify salvage handles \' sequences',
+            }))
+        </tool_code>";
+
+        let got = salvage_tool_args(text, "emit_test_plan").expect("salvage");
+        let parsed: serde_json::Value = serde_json::from_str(&got).unwrap();
+        assert_eq!(parsed["summary"], "it's a test of the parser's escapes");
+        assert_eq!(parsed["strategy"], "Verify salvage handles ' sequences");
+    }
+
+    #[test]
     fn salvage_tool_args_recovers_pseudo_calls_for_artifact_arrays() {
         let bug_text = r#"```tool_code
             console.log(default_api.emit_bug_report({
@@ -2070,6 +2104,30 @@ mod tests {
         assert_eq!(
             detect_non_tool_call_format("I cannot help with that."),
             None
+        );
+    }
+
+    #[test]
+    fn extract_raw_json_reports_tool_incapable_model() {
+        let schema = ToolSchema {
+            name: "emit_project_context".into(),
+            description: String::new(),
+            parameters_schema: serde_json::json!({}),
+        };
+        let aggregate = StreamAggregate {
+            tool_args: String::new(),
+            text: "<tool_code> console.log(set_project_context())".into(),
+            text_len: 60,
+            input_tokens: 0,
+            output_tokens: 0,
+        };
+        let err = extract_raw_json(&aggregate, &schema, "gemma3n:e4b")
+            .expect_err("tool-incapable output must error");
+        let msg = err.to_string();
+        assert!(msg.contains("did not invoke `emit_project_context`"), "got: {msg}");
+        assert!(
+            msg.contains("tool_code"),
+            "must name the detected format: {msg}"
         );
     }
 

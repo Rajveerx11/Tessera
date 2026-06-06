@@ -159,21 +159,19 @@ export function Toolbar() {
 
   return (
     <header className="flex h-8 shrink-0 items-center justify-between border-b border-border bg-card px-3">
-      <div className="flex min-w-0 items-center gap-2.5">
+      <div className="flex min-w-0 items-center gap-2">
         <img
           src="/tessera-logo.png"
           alt="Tessera"
-          className="size-6 rounded-sm shrink-0"
+          className="size-5 rounded-sm shrink-0"
           draggable="false"
         />
-        <span className="font-brand text-primary text-base">tessera</span>
+        <span className="font-brand text-foreground text-sm">tessera</span>
         {project ? (
           <>
-            <span className="text-border" aria-hidden="true">
-              ·
-            </span>
+            <span className="bg-border mx-1.5 h-3.5 w-px shrink-0" aria-hidden="true" />
             <span
-              className="text-muted-foreground truncate font-mono text-xs"
+              className="text-muted-foreground truncate text-xs"
               title={project.rootPath}
             >
               {project.name}

@@ -175,6 +175,21 @@ fn tool_choice_to_openai(tool: &ToolSchema) -> serde_json::Value {
     })
 }
 
+/// Pull the human-readable `error.message` out of a JSON error body
+/// (`{"error":{"message":"..."}}` — the envelope Ollama and every
+/// OpenAI-compatible server emit). Returns `None` when the body is not
+/// JSON or the field is missing/empty, so callers fall back to the raw
+/// body preview.
+fn extract_api_error_message(body: &str) -> Option<String> {
+    let value: serde_json::Value = serde_json::from_str(body).ok()?;
+    let message = value.get("error")?.get("message")?.as_str()?;
+    if message.is_empty() {
+        None
+    } else {
+        Some(message.to_string())
+    }
+}
+
 /// Map a non-2xx HTTP response to the closest [`LlmError`] variant.
 /// Reads the `Retry-After` response header on 429 responses.
 #[must_use]
@@ -184,7 +199,10 @@ pub fn map_http_error(
     headers: &HeaderMap,
     body: &str,
 ) -> LlmError {
-    let preview: String = body.chars().take(256).collect();
+    let preview: String = match extract_api_error_message(body) {
+        Some(message) => message.chars().take(256).collect(),
+        None => body.chars().take(256).collect(),
+    };
     match status.as_u16() {
         401 | 403 => LlmError::AuthFailed {
             provider,
@@ -201,10 +219,19 @@ pub fn map_http_error(
             provider,
             message: format!("bad request: {preview}"),
         },
-        500..=599 => LlmError::ProviderUnavailable {
-            provider,
-            message: format!("HTTP {status}: {preview}"),
-        },
+        500..=599 => {
+            // Ollama reports an out-of-memory model load as a bare 500.
+            // Surface an actionable hint instead of the raw API envelope.
+            let message = if preview.contains("requires more system memory") {
+                format!(
+                    "{preview}. Close other applications to free up RAM, \
+                     or switch to a smaller model (e.g. qwen2.5-coder:1.5b) in Settings."
+                )
+            } else {
+                format!("HTTP {status}: {preview}")
+            };
+            LlmError::ProviderUnavailable { provider, message }
+        }
         _ => LlmError::InvalidResponse {
             provider,
             message: format!("HTTP {status}: {preview}"),
@@ -515,6 +542,48 @@ mod tests {
             map_http_error("p", reqwest::StatusCode::INTERNAL_SERVER_ERROR, &h, "x").code(),
             "LLM_PROVIDER_UNAVAILABLE"
         );
+    }
+
+    #[test]
+    fn map_http_error_extracts_json_error_message() {
+        let h = HeaderMap::new();
+        let body = r#"{"error":{"message":"model not found","type":"api_error"}}"#;
+        let err = map_http_error("ollama", reqwest::StatusCode::NOT_FOUND, &h, body);
+        let display = err.to_string();
+        assert!(display.contains("model not found"));
+        assert!(
+            !display.contains("api_error"),
+            "raw JSON envelope must not leak into the message: {display}"
+        );
+    }
+
+    #[test]
+    fn map_http_error_adds_hint_on_ollama_oom() {
+        let h = HeaderMap::new();
+        let body = r#"{"error":{"message":"model requires more system memory (6.7 GiB) than is available (6.0 GiB)","type":"api_error","param":null,"code":null}}"#;
+        let err = map_http_error(
+            "ollama",
+            reqwest::StatusCode::INTERNAL_SERVER_ERROR,
+            &h,
+            body,
+        );
+        assert_eq!(err.code(), "LLM_PROVIDER_UNAVAILABLE");
+        let display = err.to_string();
+        assert!(display.contains("6.7 GiB"));
+        assert!(display.contains("smaller model"));
+        assert!(display.contains("qwen2.5-coder:1.5b"));
+    }
+
+    #[test]
+    fn map_http_error_falls_back_to_raw_body_when_not_json() {
+        let h = HeaderMap::new();
+        let err = map_http_error(
+            "p",
+            reqwest::StatusCode::INTERNAL_SERVER_ERROR,
+            &h,
+            "plain text failure",
+        );
+        assert!(err.to_string().contains("plain text failure"));
     }
 
     #[test]
