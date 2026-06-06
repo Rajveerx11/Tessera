@@ -36,6 +36,13 @@ pub fn load_dotenv_optional() {
 /// routes on top of this base as needed.
 pub const DEFAULT_OLLAMA_BASE_URL: &str = "http://localhost:11434";
 
+/// Default Ollama Cloud host root (<https://docs.ollama.com/cloud>).
+///
+/// ollama.com functions as a remote Ollama host: native `/api/...` and
+/// OpenAI-compatible `/v1/...` routes layer on top, authenticated with a
+/// Bearer API key.
+pub const DEFAULT_OLLAMA_CLOUD_BASE_URL: &str = "https://ollama.com";
+
 /// Default `SQLite` filename, resolved relative to the user data directory.
 pub const DEFAULT_DB_FILENAME: &str = "testing-ide.db";
 
