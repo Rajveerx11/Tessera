@@ -192,12 +192,28 @@ pub fn build_embedding_provider(
     config: &ProviderConfig,
 ) -> Result<Arc<dyn EmbeddingProvider>, LlmError> {
     match config.kind {
-        ProviderKind::Ollama | ProviderKind::OllamaCloud => {
+        ProviderKind::Ollama => {
             let base = config
                 .base_url
                 .as_deref()
                 .unwrap_or(DEFAULT_OLLAMA_BASE_URL);
             Ok(Arc::new(OllamaEmbeddingProvider::new(base.to_string())?))
+        }
+        ProviderKind::OllamaCloud => {
+            // Same fallback rule as `build_llm_provider`: no stored
+            // base URL means the official cloud endpoint, never the
+            // localhost default. ollama.com requires a Bearer key.
+            let base = config
+                .base_url
+                .as_deref()
+                .unwrap_or(DEFAULT_OLLAMA_CLOUD_BASE_URL);
+            let key = config
+                .api_key
+                .as_deref()
+                .ok_or_else(missing_api_key(ProviderKind::OllamaCloud))?;
+            Ok(Arc::new(
+                OllamaEmbeddingProvider::new(base.to_string())?.with_api_key(key),
+            ))
         }
         kind => Err(LlmError::Unsupported {
             provider: provider_name_for(kind),
@@ -436,6 +452,32 @@ mod tests {
         let (name, dim) = build_embedding_provider(&cfg)
             .map(|p| (p.name(), p.dimension()))
             .expect("ollama embed ok");
+        assert_eq!(name, "ollama");
+        assert_eq!(dim, 768);
+    }
+
+    #[test]
+    fn build_embedding_provider_ollama_cloud_requires_api_key() {
+        let cfg = ProviderConfig {
+            kind: ProviderKind::OllamaCloud,
+            base_url: None,
+            api_key: None,
+        };
+        let err = build_embedding_provider(&cfg).err().expect("must reject");
+        assert_eq!(err.code(), "LLM_AUTH_FAILED");
+        assert_eq!(err.provider(), "ollama");
+    }
+
+    #[test]
+    fn build_embedding_provider_ollama_cloud_with_key_succeeds() {
+        let cfg = ProviderConfig {
+            kind: ProviderKind::OllamaCloud,
+            base_url: None,
+            api_key: Some("oll-test".into()),
+        };
+        let (name, dim) = build_embedding_provider(&cfg)
+            .map(|p| (p.name(), p.dimension()))
+            .expect("cloud embed ok");
         assert_eq!(name, "ollama");
         assert_eq!(dim, 768);
     }
