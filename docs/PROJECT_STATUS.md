@@ -33,7 +33,7 @@ project) · static by default (analysis never executes your code) · structured
 | LLM providers | Ollama (default), OpenAI, OpenRouter, Anthropic, Google Gemini |
 | Embeddings | Ollama `nomic-embed-text` (768-dim) |
 | Test sandbox | Docker (opt-in) — vitest + istanbul |
-| CI/CD | GitHub Actions (5-gate CI + cross-platform releases) |
+| CI/CD | GitHub Actions (6-gate CI + cross-platform releases) |
 | Observability | `tracing` (Rust) · Sentry (opt-in) |
 
 ---
@@ -140,7 +140,7 @@ tessera/
 - ✅ **AES-256-GCM** encrypted API key storage at rest
 - ✅ **Command palette** with 13 commands and full keyboard nav
 - ✅ **Cross-platform releases**: Windows, macOS, Linux via `tauri-action`
-- ✅ **339+ tests** and 5-gate CI
+- ✅ **339+ tests** and 6-gate CI
 
 ### Sandbox Test Runner (shipped 2026-06-05)
 - ✅ **Closed-loop test execution**: Generate test cases → execute in Docker → see pass/fail + line coverage
@@ -175,11 +175,10 @@ Jira-style project management inside the IDE, per
 `providers/llm/gemini.rs` behind the existing `LlmProvider` trait — factory,
 config service, and settings UI wired through.
 
-### In Progress
+### Shipped: artifact output harness (merged 2026-06-06, #43)
 
-- `fix/artifact-output-harness` (PR #43) — hardened structured-output extraction
-  (forced `tool_choice`, JS-string escape normalization, actionable API errors).
-  CI green, awaiting merge.
+Hardened structured-output extraction — forced `tool_choice`, JS-string escape
+normalization, actionable API errors.
 
 ### Planned: Artifact Quality v2
 
@@ -274,10 +273,10 @@ See [`plan/ROADMAP.md`](../plan/ROADMAP.md) for the full roadmap.
 | Branch | Owner | Purpose | Status |
 |--------|-------|---------|--------|
 | `master` | — | Stable trunk | Green |
-| `feat/sandbox-test-runner` | Rajveer | Sandbox test runner (Phases 1–6) | Ready for merge |
-| `fix/artifact-output-harness` | Rajveer | Artifact output improvements | Active |
-| `fix/greptile-review-batch-1` | — | Code review fixes | Active |
-| `feat/gemini-provider` | — | Gemini LLM provider | In progress |
+| `feat/sandbox-test-runner` | Rajveer | Sandbox test runner (Phases 1–6) | Merged (#41) |
+| `fix/artifact-output-harness` | Rajveer | Artifact output improvements | Merged (#43) |
+| `feat/gemini-provider` | — | Gemini LLM provider | Merged (#42) |
+| `docs/artifact-quality-v2-plan` | Rajveer | Artifact Quality v2 plan + doc sync | This PR (#45) |
 
 ---
 
