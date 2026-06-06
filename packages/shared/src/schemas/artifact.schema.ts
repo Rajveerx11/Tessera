@@ -1,5 +1,6 @@
 import { z } from 'zod';
 
+import { BugReportSchema } from './bug-report.schema';
 import { DefectReportSchema } from './defect-report.schema';
 import { TestCaseSchema } from './test-case.schema';
 import { TestPlanSchema } from './test-plan.schema';
@@ -27,6 +28,7 @@ export type ArtifactStatus = z.infer<typeof ArtifactStatusSchema>;
 export const StructuredDataSchema = z.union([
   TestPlanSchema,
   TestCaseSchema,
+  BugReportSchema,
   DefectReportSchema,
   z.record(z.string(), z.unknown()),
 ]);

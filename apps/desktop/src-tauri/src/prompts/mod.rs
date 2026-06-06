@@ -14,10 +14,15 @@
 //!   strategy, risk matrix, entry/exit criteria.
 //! - [`test_cases_v1`] — individual test cases bound to specific
 //!   functions / endpoints.
+//! - [`test_cases_v2`] — v1 plus `TestRail` separated steps
+//!   (`{ action, expectedResult }`), case `type`, `testData`,
+//!   `postconditions`; the runnable `files[]` contract is unchanged.
 //! - [`defect_report_v1`] — static-analysis findings (severity,
 //!   category, location, suggested fix, confidence).
 //! - [`bug_report_v1`] — runtime-issue tracking docs formatted for
 //!   issue-tracker import.
+//! - [`bug_report_v2`] — v1 plus severity↔priority split (5-level
+//!   severity), `reproducibility`, `workaround`, `component`.
 //!
 //! Every prompt:
 //! - Returns `Vec<Message>` ready to feed into an `LlmProvider`.
@@ -33,9 +38,11 @@ use crate::providers::llm::types::{Content, Message, ToolSchema};
 use crate::services::chunking_service::Chunk;
 
 pub mod bug_report_v1;
+pub mod bug_report_v2;
 pub mod context_md_v1;
 pub mod defect_report_v1;
 pub mod test_cases_v1;
+pub mod test_cases_v2;
 pub mod test_plan_v1;
 
 #[cfg(test)]

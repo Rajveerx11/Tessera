@@ -29,7 +29,7 @@ use sqlx::SqlitePool;
 
 use crate::error::{AppError, AppResult};
 use crate::prompts::{
-    bug_report_v1, context_md_v1, defect_report_v1, test_cases_v1, test_plan_v1, PromptContext,
+    bug_report_v2, context_md_v1, defect_report_v1, test_cases_v2, test_plan_v1, PromptContext,
 };
 use crate::providers::embeddings::EmbeddingProvider;
 use crate::providers::llm::types::{Chunk as LlmChunk, GenerateRequest, Message, ToolSchema};
@@ -1249,9 +1249,9 @@ fn build_prompt(
             test_plan_v1::VERSION,
         ),
         ArtifactType::TestCases => (
-            test_cases_v1::build_messages(ctx),
-            test_cases_v1::tool(),
-            test_cases_v1::VERSION,
+            test_cases_v2::build_messages(ctx),
+            test_cases_v2::tool(),
+            test_cases_v2::VERSION,
         ),
         ArtifactType::DefectReport => (
             defect_report_v1::build_messages(ctx),
@@ -1259,9 +1259,9 @@ fn build_prompt(
             defect_report_v1::VERSION,
         ),
         ArtifactType::BugReport => (
-            bug_report_v1::build_messages(ctx),
-            bug_report_v1::tool(),
-            bug_report_v1::VERSION,
+            bug_report_v2::build_messages(ctx),
+            bug_report_v2::tool(),
+            bug_report_v2::VERSION,
         ),
     }
 }
@@ -2056,34 +2056,36 @@ mod tests {
                     id: "BUG-RUNTIME",
                     title: "Runtime failure when saving reports",
                     severity: "major",
-                    steps_to_reproduce: ["Open the app"],
-                    expected_behavior: "The report is saved",
-                    actual_behavior: "The report fails",
-                    root_cause: { symbol: "saveReport", explanation: "Error is not handled" },
+                    priority: "p1",
+                    reproducibility: "always",
+                    stepsToReproduce: ["1. Open the app"],
+                    expectedBehavior: "The report is saved",
+                    actualBehavior: "The report fails",
+                    rootCause: { symbol: "saveReport", explanation: "Error is not handled" },
                 }],
             }))
         ```"#;
         let bug = salvage_tool_args(bug_text, "emit_bug_report").expect("salvage bug report");
         let mut bug_value: serde_json::Value = serde_json::from_str(&bug).unwrap();
-        normalize_missing_arrays(&mut bug_value, &bug_report_v1::tool());
-        validate_tool_output(&bug_report_v1::tool(), &bug_value).expect("valid bug report");
+        normalize_missing_arrays(&mut bug_value, &bug_report_v2::tool());
+        validate_tool_output(&bug_report_v2::tool(), &bug_value).expect("valid bug report");
 
         let cases_text = r#"<tool_code>
             console.log(default_api.emit_test_cases({
                 cases: [{
                     id: "TC-SAVE-REPORT",
-                    title: "Save report",
+                    title: "Save report round-trip",
+                    type: "positive",
                     priority: "p1",
-                    steps: ["Save a report"],
-                    expectedResult: "The report is persisted",
+                    steps: [{ action: "Save a report", expectedResult: "The report is persisted" }],
                     traceability: "src/report.ts#saveReport",
                 }],
             }))
         </tool_code>"#;
         let cases = salvage_tool_args(cases_text, "emit_test_cases").expect("salvage cases");
         let mut cases_value: serde_json::Value = serde_json::from_str(&cases).unwrap();
-        normalize_missing_arrays(&mut cases_value, &test_cases_v1::tool());
-        validate_tool_output(&test_cases_v1::tool(), &cases_value).expect("valid test cases");
+        normalize_missing_arrays(&mut cases_value, &test_cases_v2::tool());
+        validate_tool_output(&test_cases_v2::tool(), &cases_value).expect("valid test cases");
         assert_eq!(
             cases_value["cases"][0]["traceability"],
             serde_json::json!(["src/report.ts#saveReport"])

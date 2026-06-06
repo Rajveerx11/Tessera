@@ -16,6 +16,10 @@ import { artifacts as artifactsIpc, generation, getErrorMessage } from '@/lib/ip
 import { useAiStore } from '@/stores/ai-store';
 import { useWorkspaceStore } from '@/stores/workspace-store';
 
+import {
+  ArtifactStructuredView,
+  parseStructuredArtifact,
+} from '@/components/ai-panel/artifact-structured-view';
 import { DiffView } from '@/components/ai-panel/diff-view';
 import { SandboxRunPanel } from '@/components/ai-panel/sandbox-run-panel';
 
@@ -146,6 +150,17 @@ export function ArtifactDetailDrawer({ summary, onClose }: Props) {
   }, [chain, compareId]);
 
   const canDiff = chain.length > 1 && compareId !== null && compareId !== summary.id;
+
+  // v2 structured payloads render as step tables / triage fields; v1
+  // payloads (or anything the Zod mirror rejects) fall back to the
+  // markdown body.
+  const structured = useMemo(
+    () =>
+      detail === null
+        ? null
+        : parseStructuredArtifact(detail.artifactType, detail.structuredData),
+    [detail],
+  );
 
   const handleApprove = useCallback(() => {
     void (async () => {
@@ -319,7 +334,11 @@ export function ArtifactDetailDrawer({ summary, onClose }: Props) {
               baseVersion={baseVersion?.version ?? null}
             />
           ) : detail !== null ? (
-            <MarkdownView source={detail.contentMd} />
+            structured !== null ? (
+              <ArtifactStructuredView parsed={structured} />
+            ) : (
+              <MarkdownView source={detail.contentMd} />
+            )
           ) : null}
 
           {viewMode === 'content' && summary.artifactType === 'test-cases' ? (
