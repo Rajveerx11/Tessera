@@ -1,6 +1,6 @@
 # Tessera — Project Status & Context
 
-> **Last updated**: 2026-06-05 | **Version**: v0.1.1+ (sandbox branch)
+> **Last updated**: 2026-06-06 | **Version**: v0.1.1+ (master)
 >
 > A living document that gives anyone — new contributor, reviewer, or stakeholder —
 > full context on what Tessera is, where it stands, and what's actively changing.
@@ -30,10 +30,10 @@ project) · static by default (analysis never executes your code) · structured
 | AST analysis | Tree-sitter (JS/TS/Python) |
 | Frontend | React 19 + TypeScript + Vite + Tailwind v4 + shadcn/ui + Monaco |
 | Monorepo | pnpm 10+ workspaces + Turborepo |
-| LLM providers | Ollama (default), OpenAI, OpenRouter, Anthropic |
+| LLM providers | Ollama (default), OpenAI, OpenRouter, Anthropic, Google Gemini |
 | Embeddings | Ollama `nomic-embed-text` (768-dim) |
 | Test sandbox | Docker (opt-in) — vitest + istanbul |
-| CI/CD | GitHub Actions (5-gate CI + cross-platform releases) |
+| CI/CD | GitHub Actions (6-gate CI + cross-platform releases) |
 | Observability | `tracing` (Rust) · Sentry (opt-in) |
 
 ---
@@ -140,7 +140,7 @@ tessera/
 - ✅ **AES-256-GCM** encrypted API key storage at rest
 - ✅ **Command palette** with 13 commands and full keyboard nav
 - ✅ **Cross-platform releases**: Windows, macOS, Linux via `tauri-action`
-- ✅ **339+ tests** and 5-gate CI
+- ✅ **339+ tests** and 6-gate CI
 
 ### Sandbox Test Runner (shipped 2026-06-05)
 - ✅ **Closed-loop test execution**: Generate test cases → execute in Docker → see pass/fail + line coverage
@@ -154,40 +154,37 @@ tessera/
 
 ## What's Actively Changing
 
-### In Progress: `feat/sandbox-test-runner` branch
+### Shipped: Sandbox Test Runner (merged 2026-06-05, #31 / #41)
 
-The sandbox test runner has been built across 6 phases and is ready for merge to master.
-All phases are complete:
+All 6 phases complete and on master — opt-in Docker sandbox runs generated JS/TS
+test cases with pass/fail + line coverage painted on Monaco gutters. See
+[`plan/SANDBOX_TEST_RUNNER.md`](../plan/SANDBOX_TEST_RUNNER.md) and
+[ADR-0004](../apps/desktop/src-tauri/docs/adr/0004-sandbox-test-runner.md).
+Python (`docker_py`) + cloud runners are next behind the same `TestRunner` trait.
 
-| Phase | Description | Status |
-|-------|-------------|--------|
-| 0 | ADR + Docker spike | ✅ Done |
-| 1 | Contract schemas + migration | ✅ Done |
-| 2 | Backend vertical slice | ✅ Done |
-| 3 | Sandbox hardening (security gate) | ✅ Done |
-| 4 | Coverage parse + storage | ✅ Done |
-| 5 | Frontend (Run/Stop, results panel, gutters) | ✅ Done |
-| 6 | Tests, docs, polish | ✅ Done |
+### Shipped: Tessera Boards (merged 2026-06-05, #33 / #40)
 
-**Files changed in this branch** (vs. master):
-- **62 files** modified, **~2,341 insertions**, **~238 deletions**
-- **~2,885 new lines of Rust** across 5 new backend files
-- **~385 new lines of TypeScript** across 4 new frontend files
-- **~1,123 new lines of documentation** across 4 docs/plan files
-
-### In Progress: Bug Fixes
-
-- `fix/artifact-output-harness` — active branch for artifact output improvements
-- `fix/greptile-review-batch-1` — code review fixes
-
-### Planned: JIRA Integration (Tessera Boards)
-
-A comprehensive plan exists at [`plan/JIRA_INTEGRATION.md`](../plan/JIRA_INTEGRATION.md)
-for adding Jira-like project management inside the IDE:
+Jira-style project management inside the IDE, per
+[`plan/JIRA_INTEGRATION.md`](../plan/JIRA_INTEGRATION.md):
 - New `apps/server` — Rust/Axum HTTP + WebSocket server
-- PostgreSQL backend with real-time sync
-- Teams → boards → columns → issues with drag-drop
-- 5-phase implementation plan, not yet started
+- Supabase/Postgres backend with RLS migrations and real-time sync
+- Teams → boards → sprints → issues with drag-drop kanban
+
+### Shipped: Google Gemini provider (merged 2026-06-05, #42)
+
+`providers/llm/gemini.rs` behind the existing `LlmProvider` trait — factory,
+config service, and settings UI wired through.
+
+### Shipped: artifact output harness (merged 2026-06-06, #43)
+
+Hardened structured-output extraction — forced `tool_choice`, JS-string escape
+normalization, actionable API errors.
+
+### Planned: Artifact Quality v2
+
+Upgrade the four artifact schemas (test cases, bug report, test plan, defect
+report) to industry-grade — IEEE 829 / ISO 29119-3 / ISTQB aligned. 3-phase plan
+at [`plan/ARTIFACT_QUALITY_V2.md`](../plan/ARTIFACT_QUALITY_V2.md).
 
 ---
 
@@ -276,10 +273,10 @@ See [`plan/ROADMAP.md`](../plan/ROADMAP.md) for the full roadmap.
 | Branch | Owner | Purpose | Status |
 |--------|-------|---------|--------|
 | `master` | — | Stable trunk | Green |
-| `feat/sandbox-test-runner` | Rajveer | Sandbox test runner (Phases 1–6) | Ready for merge |
-| `fix/artifact-output-harness` | Rajveer | Artifact output improvements | Active |
-| `fix/greptile-review-batch-1` | — | Code review fixes | Active |
-| `feat/gemini-provider` | — | Gemini LLM provider | In progress |
+| `feat/sandbox-test-runner` | Rajveer | Sandbox test runner (Phases 1–6) | Merged (#41) |
+| `fix/artifact-output-harness` | Rajveer | Artifact output improvements | Merged (#43) |
+| `feat/gemini-provider` | — | Gemini LLM provider | Merged (#42) |
+| `docs/artifact-quality-v2-plan` | Rajveer | Artifact Quality v2 plan + doc sync | This PR (#45) |
 
 ---
 
