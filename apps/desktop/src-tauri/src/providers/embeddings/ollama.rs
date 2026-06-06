@@ -33,6 +33,7 @@ pub struct OllamaEmbeddingProvider {
     base_url: String,
     model: String,
     dimension: usize,
+    api_key: Option<String>,
     client: Client,
 }
 
@@ -75,8 +76,17 @@ impl OllamaEmbeddingProvider {
             base_url: normalize_ollama_base_url(&base_url.into()),
             model: model.into(),
             dimension,
+            api_key: None,
             client,
         })
+    }
+
+    /// Attach a Bearer API key — required when the base URL points at
+    /// Ollama Cloud (`https://ollama.com`) rather than a local host.
+    #[must_use]
+    pub fn with_api_key(mut self, api_key: impl Into<String>) -> Self {
+        self.api_key = Some(api_key.into());
+        self
     }
 
     fn endpoint(&self) -> String {
@@ -108,10 +118,12 @@ impl EmbeddingProvider for OllamaEmbeddingProvider {
             input: &inputs,
         };
 
-        let response = self
-            .client
-            .post(self.endpoint())
-            .json(&body)
+        let mut request = self.client.post(self.endpoint()).json(&body);
+        if let Some(key) = &self.api_key {
+            request = request.bearer_auth(key);
+        }
+
+        let response = request
             .send()
             .await
             .map_err(|e| LlmError::from_reqwest(PROVIDER_NAME, &e))?;
@@ -284,6 +296,52 @@ mod tests {
         assert_eq!(vectors[0].len(), 768);
         assert_eq!(vectors[1].len(), 768);
         assert!((vectors[1][0] - 1.0).abs() < f32::EPSILON);
+        mock.assert_async().await;
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn embed_sends_bearer_auth_when_api_key_set() {
+        let mut server = Server::new_async().await;
+        let body = serde_json::json!({
+            "data": [{"embedding": vec![0.0_f32; 768]}]
+        })
+        .to_string();
+        let mock = server
+            .mock("POST", "/v1/embeddings")
+            .match_header("authorization", "Bearer oll-cloud-key")
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(body)
+            .create_async()
+            .await;
+
+        let provider = OllamaEmbeddingProvider::new(server.url())
+            .expect("provider")
+            .with_api_key("oll-cloud-key");
+        let vectors = provider.embed(vec!["hello".into()]).await.expect("embed");
+        assert_eq!(vectors.len(), 1);
+        mock.assert_async().await;
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn embed_omits_authorization_header_by_default() {
+        let mut server = Server::new_async().await;
+        let body = serde_json::json!({
+            "data": [{"embedding": vec![0.0_f32; 768]}]
+        })
+        .to_string();
+        let mock = server
+            .mock("POST", "/v1/embeddings")
+            .match_header("authorization", mockito::Matcher::Missing)
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(body)
+            .create_async()
+            .await;
+
+        let provider = OllamaEmbeddingProvider::new(server.url()).expect("provider");
+        let vectors = provider.embed(vec!["hello".into()]).await.expect("embed");
+        assert_eq!(vectors.len(), 1);
         mock.assert_async().await;
     }
 

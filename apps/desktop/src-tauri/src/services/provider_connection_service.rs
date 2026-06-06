@@ -12,7 +12,7 @@ use reqwest::Client;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use sqlx::SqlitePool;
 
-use crate::config::AppConfig;
+use crate::config::{AppConfig, DEFAULT_OLLAMA_CLOUD_BASE_URL};
 use crate::error::AppResult;
 use crate::providers::factory::ProviderKind;
 use crate::providers::llm::{anthropic, gemini, openai, openrouter};
@@ -21,7 +21,6 @@ use crate::services::provider_config_service;
 use crate::utils::crypto::CryptoKey;
 
 const DEFAULT_USER_ID: &str = "00000000-0000-4000-8000-000000000001";
-const DEFAULT_OLLAMA_CLOUD_BASE_URL: &str = "https://ollama.com";
 const CONNECTION_TEST_TIMEOUT_SECS: u64 = 15;
 
 /// User-supplied input for a provider connection test.

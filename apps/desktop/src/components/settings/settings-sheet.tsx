@@ -26,13 +26,20 @@ const PROVIDER_OPTIONS = [
 
 type ProviderOption = (typeof PROVIDER_OPTIONS)[number];
 
-const DEFAULT_URLS: Record<ProviderOption['id'], string> = {
-  'ollama': 'http://localhost:11434',
+const DEFAULT_OLLAMA_BASE_URL = 'http://localhost:11434';
+
+/**
+ * Official endpoints the backend presets when no base URL is stored
+ * (`providers/factory.rs` + `provider_connection_service.rs`). Shown as
+ * read-only context only — cloud endpoints are not user-editable; the
+ * Base URL field is reserved for Ollama (local).
+ */
+const PRESET_BASE_URLS: Record<Exclude<ProviderOption['id'], 'ollama'>, string> = {
   'ollama-cloud': 'https://ollama.com',
-  'openai': 'https://api.openai.com',
-  'openrouter': 'https://openrouter.ai/api',
-  'anthropic': 'https://api.anthropic.com',
-  'gemini': 'https://generativelanguage.googleapis.com',
+  openai: 'https://api.openai.com',
+  openrouter: 'https://openrouter.ai/api',
+  anthropic: 'https://api.anthropic.com',
+  gemini: 'https://generativelanguage.googleapis.com',
 };
 
 const DEFAULT_MODELS: Record<ProviderOption['id'], string> = {
@@ -43,6 +50,14 @@ const DEFAULT_MODELS: Record<ProviderOption['id'], string> = {
   'anthropic': 'claude-3-5-sonnet-latest',
   'gemini': 'gemini-1.5-flash',
 };
+
+/**
+ * Resolve the base URL to display for a provider: Ollama (local) honours a
+ * stored override; cloud providers are always pinned to the preset endpoint.
+ */
+function resolveBaseUrl(id: ProviderOption['id'], stored?: string | null): string {
+  return id === 'ollama' ? (stored ?? DEFAULT_OLLAMA_BASE_URL) : PRESET_BASE_URLS[id];
+}
 
 /**
  * Settings sheet — provider config CRUD + live test.
@@ -60,7 +75,7 @@ export function SettingsSheet() {
 
   const [provider, setProvider] = useState<ProviderOption['id']>('ollama');
   const [apiKey, setApiKey] = useState('');
-  const [baseUrl, setBaseUrl] = useState('http://localhost:11434');
+  const [baseUrl, setBaseUrl] = useState(DEFAULT_OLLAMA_BASE_URL);
   const [model, setModel] = useState('qwen2.5-coder:7b');
   const [testResult, setTestResult] = useState<ProviderConnectionTestResult | null>(null);
   const [testing, setTesting] = useState(false);
@@ -85,13 +100,8 @@ export function SettingsSheet() {
 
   const loadSavedConfig = useCallback((targetProvider: ProviderOption['id'], currentList: ProviderConfigView[]) => {
     const saved = currentList.find(c => c.provider === targetProvider);
-    if (saved) {
-      setBaseUrl(saved.baseUrl ?? DEFAULT_URLS[targetProvider]);
-      setModel(saved.defaultModel ?? DEFAULT_MODELS[targetProvider]);
-    } else {
-      setBaseUrl(DEFAULT_URLS[targetProvider]);
-      setModel(DEFAULT_MODELS[targetProvider]);
-    }
+    setBaseUrl(resolveBaseUrl(targetProvider, saved?.baseUrl));
+    setModel(saved?.defaultModel ?? DEFAULT_MODELS[targetProvider]);
     setApiKey('');
     setTestResult(null);
     setIsCustomModel(false);
@@ -151,7 +161,7 @@ export function SettingsSheet() {
         setActiveProvider(active);
         if (active) {
           setProvider(active.provider);
-          setBaseUrl(active.baseUrl ?? DEFAULT_URLS[active.provider]);
+          setBaseUrl(resolveBaseUrl(active.provider, active.baseUrl));
           setModel(active.defaultModel ?? DEFAULT_MODELS[active.provider]);
         }
       } catch (err) {
@@ -236,6 +246,17 @@ export function SettingsSheet() {
     })();
   }, []);
 
+  // Only Ollama (local) exposes an editable base URL. Cloud providers
+  // always use the official preset endpoint: sending '' explicitly
+  // clears any previously stored base URL so the backend default
+  // (`providers/factory.rs`) applies.
+  const isLocalOllama = provider === 'ollama';
+  const effectiveBaseUrl = isLocalOllama
+    ? baseUrl.length > 0
+      ? baseUrl
+      : undefined
+    : '';
+
   const handleSave = useCallback(() => {
     setSaving(true);
     setError(null);
@@ -245,7 +266,7 @@ export function SettingsSheet() {
         await providers.saveProviderConfig({
           provider,
           apiKey: apiKey.length > 0 ? apiKey : undefined,
-          baseUrl: baseUrl.length > 0 ? baseUrl : undefined,
+          baseUrl: effectiveBaseUrl,
           defaultModel: model.length > 0 ? model : undefined,
           isActive: true,
         });
@@ -258,7 +279,7 @@ export function SettingsSheet() {
         setSaving(false);
       }
     })();
-  }, [provider, apiKey, baseUrl, model, refresh]);
+  }, [provider, apiKey, effectiveBaseUrl, model, refresh]);
 
   const handleTest = useCallback(() => {
     setTesting(true);
@@ -268,7 +289,7 @@ export function SettingsSheet() {
         const result = await providers.testProviderConnection({
           provider,
           apiKey: apiKey.length > 0 ? apiKey : undefined,
-          baseUrl: baseUrl.length > 0 ? baseUrl : undefined,
+          baseUrl: effectiveBaseUrl,
         });
         setTestResult(result);
         if (result.models && result.models.length > 0) {
@@ -285,7 +306,7 @@ export function SettingsSheet() {
         setTesting(false);
       }
     })();
-  }, [provider, apiKey, baseUrl]);
+  }, [provider, apiKey, effectiveBaseUrl]);
 
   const handleDelete = useCallback(
     (id: string) => {
@@ -420,25 +441,25 @@ export function SettingsSheet() {
               ))}
             </div>
 
-            <div className="space-y-1.5">
-              <label htmlFor="provider-base-url" className="text-xs font-medium">
-                Base URL
-              </label>
-              <Input
-                id="provider-base-url"
-                value={baseUrl}
-                onChange={(e) => {
-                  setBaseUrl(e.target.value);
-                }}
-                onBlur={() => {
-                  loadModels(provider, baseUrl, apiKey);
-                }}
-                placeholder={provider === 'ollama' ? 'http://localhost:11434' : 'optional'}
-                autoComplete="off"
-                spellCheck={false}
-              />
-              
-              {provider === 'ollama' && (
+            {isLocalOllama ? (
+              <div className="space-y-1.5">
+                <label htmlFor="provider-base-url" className="text-xs font-medium">
+                  Base URL
+                </label>
+                <Input
+                  id="provider-base-url"
+                  value={baseUrl}
+                  onChange={(e) => {
+                    setBaseUrl(e.target.value);
+                  }}
+                  onBlur={() => {
+                    loadModels(provider, baseUrl, apiKey);
+                  }}
+                  placeholder={DEFAULT_OLLAMA_BASE_URL}
+                  autoComplete="off"
+                  spellCheck={false}
+                />
+
                 <div className="flex flex-col gap-1.5 mt-1 bg-muted/10 border border-border/60 p-2 rounded-md">
                   {ollamaStatus?.installed === false ? (
                     <p className="text-destructive text-[10px]">
@@ -472,8 +493,14 @@ export function SettingsSheet() {
                     </div>
                   )}
                 </div>
-              )}
-            </div>
+              </div>
+            ) : (
+              <p className="text-muted-foreground text-[10px]">
+                Endpoint preset to{' '}
+                <span className="font-mono">{PRESET_BASE_URLS[provider]}</span>. Only an
+                API key is needed.
+              </p>
+            )}
 
             {requiresKey ? (
               <div className="space-y-1.5">

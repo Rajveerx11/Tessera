@@ -18,7 +18,7 @@ use super::llm::ollama::OllamaProvider;
 use super::llm::openai::OpenAiProvider;
 use super::llm::openrouter::OpenRouterProvider;
 use super::llm::LlmProvider;
-use crate::config::DEFAULT_OLLAMA_BASE_URL;
+use crate::config::{DEFAULT_OLLAMA_BASE_URL, DEFAULT_OLLAMA_CLOUD_BASE_URL};
 use crate::error::{AppError, AppResult};
 
 /// Discriminator used to match the provider kind selected by the user
@@ -122,7 +122,7 @@ pub fn build_llm_provider(config: &ProviderConfig) -> Result<Arc<dyn LlmProvider
             let base = config
                 .base_url
                 .as_deref()
-                .ok_or_else(missing_base_url("ollama-cloud"))?;
+                .unwrap_or(DEFAULT_OLLAMA_CLOUD_BASE_URL);
             // Ollama Cloud is OpenAI-compatible; reuse OpenAiProvider
             // so the auth path is the same as cloud OpenAI.
             let key = config
@@ -192,12 +192,28 @@ pub fn build_embedding_provider(
     config: &ProviderConfig,
 ) -> Result<Arc<dyn EmbeddingProvider>, LlmError> {
     match config.kind {
-        ProviderKind::Ollama | ProviderKind::OllamaCloud => {
+        ProviderKind::Ollama => {
             let base = config
                 .base_url
                 .as_deref()
                 .unwrap_or(DEFAULT_OLLAMA_BASE_URL);
             Ok(Arc::new(OllamaEmbeddingProvider::new(base.to_string())?))
+        }
+        ProviderKind::OllamaCloud => {
+            // Same fallback rule as `build_llm_provider`: no stored
+            // base URL means the official cloud endpoint, never the
+            // localhost default. ollama.com requires a Bearer key.
+            let base = config
+                .base_url
+                .as_deref()
+                .unwrap_or(DEFAULT_OLLAMA_CLOUD_BASE_URL);
+            let key = config
+                .api_key
+                .as_deref()
+                .ok_or_else(missing_api_key(ProviderKind::OllamaCloud))?;
+            Ok(Arc::new(
+                OllamaEmbeddingProvider::new(base.to_string())?.with_api_key(key),
+            ))
         }
         kind => Err(LlmError::Unsupported {
             provider: provider_name_for(kind),
@@ -222,13 +238,6 @@ fn missing_api_key(kind: ProviderKind) -> impl FnOnce() -> LlmError {
     move || LlmError::AuthFailed {
         provider: provider_name_for(kind),
         message: "API key not configured for this provider".into(),
-    }
-}
-
-fn missing_base_url(label: &'static str) -> impl FnOnce() -> LlmError {
-    move || LlmError::Unsupported {
-        provider: label,
-        feature: "base_url",
     }
 }
 
@@ -291,6 +300,31 @@ mod tests {
             .map(|p| p.name())
             .expect("default url ok");
         assert_eq!(name, "ollama");
+    }
+
+    #[test]
+    fn build_llm_provider_ollama_cloud_falls_back_to_default_url() {
+        let cfg = ProviderConfig {
+            kind: ProviderKind::OllamaCloud,
+            base_url: None,
+            api_key: Some("oll-test".into()),
+        };
+        let name = build_llm_provider(&cfg)
+            .map(|p| p.name())
+            .expect("default cloud url ok");
+        assert_eq!(name, "openai");
+    }
+
+    #[test]
+    fn build_llm_provider_ollama_cloud_requires_api_key() {
+        let cfg = ProviderConfig {
+            kind: ProviderKind::OllamaCloud,
+            base_url: None,
+            api_key: None,
+        };
+        let err = build_llm_provider(&cfg).err().expect("must reject");
+        assert_eq!(err.code(), "LLM_AUTH_FAILED");
+        assert_eq!(err.provider(), "ollama");
     }
 
     #[test]
@@ -418,6 +452,32 @@ mod tests {
         let (name, dim) = build_embedding_provider(&cfg)
             .map(|p| (p.name(), p.dimension()))
             .expect("ollama embed ok");
+        assert_eq!(name, "ollama");
+        assert_eq!(dim, 768);
+    }
+
+    #[test]
+    fn build_embedding_provider_ollama_cloud_requires_api_key() {
+        let cfg = ProviderConfig {
+            kind: ProviderKind::OllamaCloud,
+            base_url: None,
+            api_key: None,
+        };
+        let err = build_embedding_provider(&cfg).err().expect("must reject");
+        assert_eq!(err.code(), "LLM_AUTH_FAILED");
+        assert_eq!(err.provider(), "ollama");
+    }
+
+    #[test]
+    fn build_embedding_provider_ollama_cloud_with_key_succeeds() {
+        let cfg = ProviderConfig {
+            kind: ProviderKind::OllamaCloud,
+            base_url: None,
+            api_key: Some("oll-test".into()),
+        };
+        let (name, dim) = build_embedding_provider(&cfg)
+            .map(|p| (p.name(), p.dimension()))
+            .expect("cloud embed ok");
         assert_eq!(name, "ollama");
         assert_eq!(dim, 768);
     }
