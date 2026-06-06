@@ -8,7 +8,31 @@ commit messages and [Semantic Versioning](https://semver.org/) for releases.
 
 ---
 
-## [Unreleased] — feat/sandbox-test-runner (2026-06-05)
+## [Unreleased]
+
+### 🚀 Added (merged to master 2026-06-05/06)
+
+- **Tessera Boards** (#33, hardened in #40) — Jira-style project management inside
+  the IDE: new `apps/server` (Rust/Axum + WebSocket), teams → boards → sprints →
+  issues with drag-drop kanban, Supabase/Postgres backend with RLS migrations.
+- **Google Gemini provider** (#42) — `providers/llm/gemini.rs` behind the existing
+  `LlmProvider` trait; provider config, base-url handling, and connection test wired
+  through factory + settings UI.
+- **Artifact output harness** (#43) — hardened structured-output extraction:
+  forced single-tool `tool_choice` on OpenAI-compatible payloads, JS-string
+  normalization (`\'` escapes) in the salvage path, actionable API error messages
+  (Ollama OOM hint), narrower pseudo-tool-call detection.
+- **Playwright E2E in CI** — e2e suite runs as a CI gate alongside the 5 existing gates.
+
+### 📋 Planned
+
+- **Artifact Quality v2** — industry-grade artifact schemas (IEEE 829 /
+  ISO 29119-3 / ISTQB aligned), 3-phase plan in
+  [`plan/ARTIFACT_QUALITY_V2.md`](plan/ARTIFACT_QUALITY_V2.md).
+
+---
+
+## Sandbox Test Runner — merged 2026-06-05 (#31, #41)
 
 ### 🚀 Added — Sandbox Test Runner (Phases 1–6, JS/TS)
 

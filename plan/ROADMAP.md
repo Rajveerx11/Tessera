@@ -18,6 +18,7 @@ the [README](../README.md).
 | **No export integrations** — artifacts live only in local SQLite | Can't push to JIRA / Linear / GitHub Issues | Per-platform export adapters + clipboard-friendly Markdown |
 | **No observability** — no coverage reports, perf metrics, or usage analytics | Hard to track quality over time | LCOV in CI, opt-in telemetry (PostHog/Plausible), bundle-size tracking |
 | **Static prompts** — v1 prompts are hardcoded | Power users can't tune generation | User-editable prompt templates with variable substitution + prompt A/B testing |
+| **Basic artifact schemas** — happy-path test cases, bug reports without repro steps | Artifacts below professional QA bar | **Artifact Quality v2** — IEEE 829 / ISO 29119-3 / ISTQB-aligned schemas; 3-phase plan in [`ARTIFACT_QUALITY_V2.md`](./ARTIFACT_QUALITY_V2.md) |
 
 ---
 
