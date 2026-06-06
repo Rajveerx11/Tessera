@@ -1,4 +1,5 @@
 import type {
+  OllamaStatus,
   ProviderConfigView,
   ProviderConnectionTestResult,
 } from '@testing-ide/shared';
@@ -9,7 +10,7 @@ import { Button } from '@/components/ui/button';
 import { Dialog } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { useDialogTitleId } from '@/lib/dialog-title';
-import { getErrorMessage, providers } from '@/lib/ipc';
+import { getErrorMessage, ollama, providers } from '@/lib/ipc';
 import { pickActiveProvider } from '@/lib/provider';
 import { useAiStore } from '@/stores/ai-store';
 import { useUiStore } from '@/stores/ui-store';
@@ -25,19 +26,26 @@ const PROVIDER_OPTIONS = [
 
 type ProviderOption = (typeof PROVIDER_OPTIONS)[number];
 
+const DEFAULT_URLS: Record<ProviderOption['id'], string> = {
+  'ollama': 'http://localhost:11434',
+  'ollama-cloud': 'https://ollama.com',
+  'openai': 'https://api.openai.com',
+  'openrouter': 'https://openrouter.ai/api',
+  'anthropic': 'https://api.anthropic.com',
+  'gemini': 'https://generativelanguage.googleapis.com',
+};
+
+const DEFAULT_MODELS: Record<ProviderOption['id'], string> = {
+  'ollama': 'qwen2.5-coder:7b',
+  'ollama-cloud': 'qwen2.5-coder:7b',
+  'openai': 'gpt-4o',
+  'openrouter': 'google/gemini-2.5-pro',
+  'anthropic': 'claude-3-5-sonnet-latest',
+  'gemini': 'gemini-1.5-flash',
+};
+
 /**
  * Settings sheet — provider config CRUD + live test.
- *
- * Security:
- * - The plaintext API key is held in renderer state only for the
- *   duration of the form session. On Save the value travels through
- *   `save_provider_config` which encrypts it at rest with AES-GCM
- *   (Phase 6 `utils/crypto.rs`). The backend never returns it again;
- *   the listed `ProviderConfigView` carries `hasApiKey: boolean`.
- * - The "Test Connection" path uses `test_provider_connection` which
- *   does not persist the key. Live probes are only made for Ollama
- *   (local). Cloud providers return "credentials accepted" without
- *   echoing the key in any error path.
  */
 export function SettingsSheet() {
   const open = useUiStore((s) => s.settingsOpen);
@@ -58,6 +66,70 @@ export function SettingsSheet() {
   const [testing, setTesting] = useState(false);
   const [saving, setSaving] = useState(false);
 
+  // Dynamic model options and server management state
+  const [availableModels, setAvailableModels] = useState<string[]>([]);
+  const [loadingModels, setLoadingModels] = useState(false);
+  const [isCustomModel, setIsCustomModel] = useState(false);
+  const [ollamaStatus, setOllamaStatus] = useState<OllamaStatus | null>(null);
+  const [startingOllama, setStartingOllama] = useState(false);
+
+  const loadSavedConfig = useCallback((targetProvider: ProviderOption['id'], currentList: ProviderConfigView[]) => {
+    const saved = currentList.find(c => c.provider === targetProvider);
+    if (saved) {
+      setBaseUrl(saved.baseUrl ?? DEFAULT_URLS[targetProvider]);
+      setModel(saved.defaultModel ?? DEFAULT_MODELS[targetProvider]);
+    } else {
+      setBaseUrl(DEFAULT_URLS[targetProvider]);
+      setModel(DEFAULT_MODELS[targetProvider]);
+    }
+    setApiKey('');
+    setTestResult(null);
+    setIsCustomModel(false);
+    setAvailableModels([]);
+  }, []);
+
+  const loadModels = useCallback((currentProvider: ProviderOption['id'], currentBaseUrl: string, currentApiKey: string) => {
+    setLoadingModels(true);
+    void (async () => {
+      try {
+        if (currentProvider === 'ollama') {
+          const res = await providers.listOllamaModels(currentBaseUrl);
+          setAvailableModels(res.map(m => m.name));
+        } else {
+          const res = await providers.testProviderConnection({
+            provider: currentProvider,
+            apiKey: currentApiKey.length > 0 ? currentApiKey : undefined,
+            baseUrl: currentBaseUrl.length > 0 ? currentBaseUrl : undefined,
+          });
+          if (res.models && res.models.length > 0) {
+            setAvailableModels(res.models);
+          } else {
+            setAvailableModels([]);
+          }
+        }
+      } catch (err) {
+        console.error('Failed to load models:', err);
+        setAvailableModels([]);
+      } finally {
+        setLoadingModels(false);
+      }
+    })();
+  }, []);
+
+  const checkStatus = useCallback(() => {
+    void (async () => {
+      try {
+        const status = await ollama.checkOllamaStatus();
+        setOllamaStatus(status);
+        if (status.running && provider === 'ollama') {
+          setAvailableModels(status.models);
+        }
+      } catch (err) {
+        console.error('Failed to check Ollama status:', err);
+      }
+    })();
+  }, [provider]);
+
   const refresh = useCallback(() => {
     setLoading(true);
     setError(null);
@@ -65,7 +137,13 @@ export function SettingsSheet() {
       try {
         const next = await providers.listProviderConfigs();
         setList(next);
-        setActiveProvider(pickActiveProvider(next));
+        const active = pickActiveProvider(next);
+        setActiveProvider(active);
+        if (active) {
+          setProvider(active.provider);
+          setBaseUrl(active.baseUrl ?? DEFAULT_URLS[active.provider]);
+          setModel(active.defaultModel ?? DEFAULT_MODELS[active.provider]);
+        }
       } catch (err) {
         setError(getErrorMessage(err));
       } finally {
@@ -77,6 +155,63 @@ export function SettingsSheet() {
   useEffect(() => {
     if (open) refresh();
   }, [open, refresh]);
+
+  useEffect(() => {
+    if (open) {
+      if (provider === 'ollama') {
+        checkStatus();
+      } else {
+        const configView = list.find((c) => c.provider === provider);
+        const hasSavedKey = configView?.hasApiKey ?? false;
+        if (hasSavedKey) {
+          loadModels(provider, baseUrl, '');
+        } else {
+          setAvailableModels([]);
+        }
+      }
+    }
+  }, [open, provider, baseUrl, list, loadModels, checkStatus]);
+
+  const handleStartOllama = useCallback(() => {
+    setStartingOllama(true);
+    setError(null);
+    void (async () => {
+      try {
+        const resolvedUrl = await ollama.startOllamaServer();
+        setBaseUrl(resolvedUrl);
+
+        let attempts = 0;
+        const interval = setInterval(() => {
+          attempts++;
+          void (async () => {
+            try {
+              const status = await ollama.checkOllamaStatus();
+              setOllamaStatus(status);
+              if (status.running) {
+                clearInterval(interval);
+                setStartingOllama(false);
+                setAvailableModels(status.models);
+                if (status.models.length > 0 && status.models[0]) {
+                  setModel(status.models[0]);
+                }
+              }
+            } catch (err) {
+              console.error('Polling Ollama status error:', err);
+            }
+          })();
+
+          if (attempts >= 10) {
+            clearInterval(interval);
+            setStartingOllama(false);
+            setError("Ollama started, but failed to connect within timeout.");
+          }
+        }, 1000);
+      } catch (err) {
+        setStartingOllama(false);
+        setError(getErrorMessage(err));
+      }
+    })();
+  }, []);
 
   const handleSave = useCallback(() => {
     setSaving(true);
@@ -113,6 +248,9 @@ export function SettingsSheet() {
           baseUrl: baseUrl.length > 0 ? baseUrl : undefined,
         });
         setTestResult(result);
+        if (result.models && result.models.length > 0) {
+          setAvailableModels(result.models);
+        }
       } catch (err) {
         setTestResult({
           ok: false,
@@ -201,7 +339,7 @@ export function SettingsSheet() {
                     className="group flex items-center justify-between rounded-md border border-border bg-background px-3 py-2 text-xs transition-colors hover:border-primary/40"
                   >
                     <div className="min-w-0 flex-1">
-                      <div className="flex items-center gap-2">
+                       <div className="flex items-center gap-2">
                         <span
                           aria-hidden="true"
                           className={`size-1.5 rounded-full ${c.isActive ? 'bg-primary' : 'bg-surface-3'}`}
@@ -250,7 +388,7 @@ export function SettingsSheet() {
                     checked={provider === p.id}
                     onChange={() => {
                       setProvider(p.id);
-                      setTestResult(null);
+                      loadSavedConfig(p.id, list);
                     }}
                     className="sr-only"
                   />
@@ -273,6 +411,42 @@ export function SettingsSheet() {
                 autoComplete="off"
                 spellCheck={false}
               />
+              
+              {provider === 'ollama' && (
+                <div className="flex flex-col gap-1.5 mt-1 bg-muted/10 border border-border/60 p-2 rounded-md">
+                  {ollamaStatus?.installed === false ? (
+                    <p className="text-destructive text-[10px]">
+                      Ollama CLI not found in PATH. Please install Ollama first.
+                    </p>
+                  ) : ollamaStatus?.running ? (
+                    <p className="text-success text-[10px] flex items-center gap-1.5">
+                      <span className="size-1.5 rounded-full bg-success animate-pulse" />
+                      Ollama local server is running.
+                    </p>
+                  ) : (
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="text-warning text-[10px] flex-1">
+                        Ollama local server is not running.
+                      </p>
+                      <Button
+                        type="button"
+                        className="h-6 px-2 text-[10px] font-semibold"
+                        onClick={handleStartOllama}
+                        disabled={startingOllama}
+                      >
+                        {startingOllama ? (
+                          <>
+                            <Loader2 className="size-3 mr-1 animate-spin" />
+                            Starting…
+                          </>
+                        ) : (
+                          "Start Server"
+                        )}
+                      </Button>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
 
             {requiresKey ? (
@@ -287,6 +461,11 @@ export function SettingsSheet() {
                   onChange={(e) => {
                     setApiKey(e.target.value);
                   }}
+                  onBlur={() => {
+                    if (apiKey.length > 0) {
+                      loadModels(provider, baseUrl, apiKey);
+                    }
+                  }}
                   placeholder="sk-…"
                   autoComplete="off"
                   spellCheck={false}
@@ -298,19 +477,61 @@ export function SettingsSheet() {
             ) : null}
 
             <div className="space-y-1.5">
-              <label htmlFor="provider-model" className="text-xs font-medium">
-                Default model
-              </label>
-              <Input
-                id="provider-model"
-                value={model}
-                onChange={(e) => {
-                  setModel(e.target.value);
-                }}
-                placeholder={provider === 'ollama' ? 'qwen2.5-coder:7b' : 'gpt-4o'}
-                autoComplete="off"
-                spellCheck={false}
-              />
+              <div className="flex items-center justify-between">
+                <label htmlFor="provider-model" className="text-xs font-medium">
+                  Model
+                </label>
+                {availableModels.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => setIsCustomModel(!isCustomModel)}
+                    className="text-primary hover:underline text-[10px] font-medium"
+                  >
+                    {isCustomModel ? 'Use dropdown' : 'Type custom...'}
+                  </button>
+                )}
+              </div>
+              {loadingModels ? (
+                <div className="flex items-center gap-2 text-muted-foreground text-xs h-8 px-2.5 border border-input rounded-md bg-background/50">
+                  <Loader2 className="size-3 animate-spin text-primary" />
+                  <span>Loading models…</span>
+                </div>
+              ) : availableModels.length > 0 && !isCustomModel ? (
+                <select
+                  id="provider-model"
+                  value={model}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    if (val === '__custom__') {
+                      setIsCustomModel(true);
+                    } else {
+                      setModel(val);
+                    }
+                  }}
+                  className="border-input bg-background text-foreground focus:ring-primary/40 focus:border-primary flex h-8 w-full rounded-md border px-2 py-1 text-xs transition-colors focus:outline-none focus:ring-2 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {!availableModels.includes(model) && model && (
+                    <option value={model}>{model} (current)</option>
+                  )}
+                  {availableModels.map((m) => (
+                    <option key={m} value={m}>
+                      {m}
+                    </option>
+                  ))}
+                  <option value="__custom__">+ Type custom model...</option>
+                </select>
+              ) : (
+                <Input
+                  id="provider-model"
+                  value={model}
+                  onChange={(e) => {
+                    setModel(e.target.value);
+                  }}
+                  placeholder={provider === 'ollama' ? 'qwen2.5-coder:7b' : 'gpt-4o'}
+                  autoComplete="off"
+                  spellCheck={false}
+                />
+              )}
             </div>
 
             {testResult !== null ? (
@@ -364,3 +585,4 @@ export function SettingsSheet() {
     </Dialog>
   );
 }
+
