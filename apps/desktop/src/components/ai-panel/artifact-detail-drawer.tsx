@@ -71,16 +71,19 @@ export function ArtifactDetailDrawer({ summary, onClose }: Props) {
   const activeProvider = useAiStore((s) => s.activeProvider);
   const upsertArtifact = useAiStore((s) => s.upsertArtifact);
 
-  // Re-sync when the drawer is pointed at a different artifact from
-  // the queue (the parent re-mounts per `summary`, but keep this safe
-  // against prop changes without a remount).
+  // Re-sync when the drawer is pointed at a *different* artifact from
+  // the queue. Guard on the id: a parent re-render can hand down a new
+  // `summary` object reference for the same artifact, and blindly
+  // resetting would revert `current` to the stale parent right after a
+  // regenerate advanced it.
   useEffect(() => {
-    setCurrent(summary);
+    setCurrent((prev) => (prev.id === summary.id ? prev : summary));
   }, [summary]);
 
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
+    setDetail(null);
     setError(null);
     void (async () => {
       try {
@@ -229,10 +232,9 @@ export function ArtifactDetailDrawer({ summary, onClose }: Props) {
         upsertArtifact(freshSummary);
         // Advance the drawer to the fresh version: header (vN, status),
         // version chain, approve/reject, and the sandbox panel all
-        // re-bind to the new artifact id. `setDetail` shows the body
-        // immediately; the `current.id` effects refresh the chain.
+        // re-bind to the new artifact id. The `current.id` effects own
+        // the (single) detail fetch and the chain refresh.
         setCurrent(freshSummary);
-        setDetail(fresh);
         setFeedback('');
       } catch (err) {
         setError(getErrorMessage(err));

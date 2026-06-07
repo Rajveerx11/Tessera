@@ -102,11 +102,11 @@ export function SandboxRunPanel({ artifactId, hasFiles }: Props) {
             disabled={!optIn || !runnable}
             className="ml-auto"
             title={
-              !runnable
-                ? 'This artifact has no runnable files — regenerate the test cases'
-                : optIn
-                  ? 'Run tests in the local Docker sandbox'
-                  : 'Enable local test execution in Settings'
+              !optIn
+                ? 'Enable local test execution in Settings'
+                : !runnable
+                  ? 'This artifact has no runnable files — regenerate the test cases'
+                  : 'Run tests in the local Docker sandbox'
             }
           >
             <Play className="size-3.5" /> Run
