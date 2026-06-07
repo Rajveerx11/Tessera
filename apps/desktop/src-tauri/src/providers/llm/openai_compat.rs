@@ -77,10 +77,15 @@ pub fn stream_chat_completions(req: ChatRequest<'_>) -> ChunkStream {
                     text
                 );
 
-                // Strip tools and tool_choice
+                // Strip tools and tool_choice; without a tool schema to
+                // constrain output, force JSON via response_format instead.
                 if let serde_json::Value::Object(ref mut obj) = body {
                     obj.remove("tools");
                     obj.remove("tool_choice");
+                    obj.insert(
+                        "response_format".to_string(),
+                        serde_json::json!({ "type": "json_object" }),
+                    );
                 }
 
                 // Retry request
@@ -155,10 +160,16 @@ pub fn build_request_payload(req: &GenerateRequest, stream: bool) -> serde_json:
         "model": req.model,
         "messages": req.messages.iter().map(message_to_openai).collect::<Vec<_>>(),
         "stream": stream,
-        "response_format": { "type": "json_object" }
     });
 
-    if !req.tools.is_empty() {
+    if req.tools.is_empty() {
+        // No tool schema to constrain output — force JSON via response_format.
+        payload["response_format"] = serde_json::json!({ "type": "json_object" });
+    } else {
+        // Tool schema already constrains output to JSON. Sending
+        // response_format alongside a forced tool_choice is rejected by
+        // Gemini's OpenAI-compat endpoint (400 INVALID_ARGUMENT: forced
+        // function calling with a JSON response mime type is unsupported).
         payload["tools"] = req.tools.iter().map(tool_to_openai).collect();
         if req.tools.len() == 1 {
             payload["tool_choice"] = tool_choice_to_openai(&req.tools[0]);
@@ -542,6 +553,8 @@ mod tests {
         assert_eq!(body["tools"][0]["function"]["name"], "emit_test_plan");
         assert_eq!(body["tool_choice"]["type"], "function");
         assert_eq!(body["tool_choice"]["function"]["name"], "emit_test_plan");
+        // Gemini rejects response_format combined with forced tool_choice.
+        assert!(body.get("response_format").is_none());
     }
 
     #[test]
