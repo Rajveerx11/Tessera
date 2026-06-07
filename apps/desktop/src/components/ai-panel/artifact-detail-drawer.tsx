@@ -31,7 +31,6 @@ import { Dialog } from '@/components/ui/dialog';
 import { toArtifactSummary } from '@/lib/artifact';
 import { useDialogTitleId } from '@/lib/dialog-title';
 import { exportArtifactToFile } from '@/lib/export-artifact';
-import { exportMarkdownDocument } from '@/lib/export-markdown';
 import {
   artifacts as artifactsIpc,
   exports as exportsIpc,
@@ -283,16 +282,6 @@ export function ArtifactDetailDrawer({ summary, onClose }: Props) {
       }
     })();
   }, []);
-
-  const handleExportMarkdown = useCallback(() => {
-    if (detail === null) {
-      return;
-    }
-    runExport(async () => {
-      const exportedPath = await exportMarkdownDocument(detail.title, detail.contentMd);
-      return exportedPath !== null ? 'Exported markdown.' : null;
-    });
-  }, [detail, runExport]);
 
   const handleExportFile = useCallback(
     (format: ExportFormat) => {
@@ -572,7 +561,14 @@ export function ArtifactDetailDrawer({ summary, onClose }: Props) {
                       label="Markdown (.md)"
                       onSelect={() => {
                         closeExportMenu();
-                        handleExportMarkdown();
+                        handleExportFile('md');
+                      }}
+                    />
+                    <ExportMenuItem
+                      label="JSON (.json)"
+                      onSelect={() => {
+                        closeExportMenu();
+                        handleExportFile('json');
                       }}
                     />
                     <ExportMenuItem

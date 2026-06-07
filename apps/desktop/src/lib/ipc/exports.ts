@@ -7,10 +7,11 @@ import {
 import { invokeAndParse, invokeString } from './invoke';
 
 /**
- * Export an artifact's structured data to a file on disk. The Rust
- * side validates `destPath`, maps the payload to the export IR, and
- * writes xlsx/csv/tsv. Returns every file written (CSV/TSV exports of
- * multi-section artifacts emit siblings).
+ * Export an artifact to a file on disk. The Rust side validates
+ * `destPath` and renders the requested format — markdown/JSON
+ * straight off `structured_data`, xlsx/csv/tsv through the export
+ * IR. Returns every file written (CSV/TSV exports of multi-section
+ * artifacts emit siblings; markdown/JSON always write one file).
  */
 export async function exportArtifact(
   artifactId: string,
