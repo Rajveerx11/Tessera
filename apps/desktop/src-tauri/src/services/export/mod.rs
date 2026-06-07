@@ -127,7 +127,11 @@ fn write_delimited(doc: &ExportDoc, format: ExportFormat, dest: &Path) -> AppRes
             sibling_path(dest, section.name(), format)
         };
         let file = File::create(&path)?;
-        csv_writer::write_section(BufWriter::new(file), section, format.delimiter(), true)?;
+        // BOM only for CSV — Excel on Windows misdetects BOM-less
+        // UTF-8 CSVs, but a BOM in TSV breaks tab-aware CLI tools
+        // that treat it as part of the first field.
+        let bom = format == ExportFormat::Csv;
+        csv_writer::write_section(BufWriter::new(file), section, format.delimiter(), bom)?;
         written.push(path);
     }
     Ok(written)
@@ -431,6 +435,26 @@ mod tests {
         assert!(written[1].to_string_lossy().ends_with("cases.files.csv"));
         let primary = std::fs::read(&written[0]).expect("read back");
         assert_eq!(&primary[..3], csv_writer::UTF8_BOM);
+
+        pool.close().await;
+        let _ = std::fs::remove_dir_all(&dir);
+        let _ = std::fs::remove_file(&db_path);
+    }
+
+    #[tokio::test]
+    async fn export_tsv_file_has_no_bom() {
+        let (pool, db_path, id) =
+            seeded_pool_with_artifact(ArtifactType::TestCases, test_cases_payload()).await;
+        let dir = temp_dir();
+        let dest = dir.join("cases.tsv");
+
+        let written = export_artifact(&pool, &id, ExportFormat::Tsv, &dest)
+            .await
+            .expect("export");
+        let primary = std::fs::read(&written[0]).expect("read back");
+        // BOM is CSV-only — a BOM in TSV breaks tab-aware CLI tools.
+        assert_ne!(&primary[..3], csv_writer::UTF8_BOM);
+        assert!(primary.starts_with(b"ID\t"));
 
         pool.close().await;
         let _ = std::fs::remove_dir_all(&dir);

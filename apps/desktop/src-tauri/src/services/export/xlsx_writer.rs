@@ -123,11 +123,21 @@ fn write_table_sheet(worksheet: &mut Worksheet, table: &ExportTable) -> AppResul
 }
 
 fn write_key_values_sheet(worksheet: &mut Worksheet, kv: &KeyValueSection) -> AppResult<()> {
+    let header_format = Format::new().set_bold().set_background_color(HEADER_FILL);
     let field_format = Format::new().set_bold();
     let value_format = Format::new().set_text_wrap();
 
+    // Same `Field` / `Value` header row the CSV writer emits, so the
+    // two formats stay row-for-row identical.
+    worksheet
+        .write_with_format(0, 0, "Field", &header_format)
+        .map_err(|e| xlsx_err(&e))?;
+    worksheet
+        .write_with_format(0, 1, "Value", &header_format)
+        .map_err(|e| xlsx_err(&e))?;
+
     for (row_idx, (field, value)) in kv.entries.iter().enumerate() {
-        let row_n = to_row(row_idx);
+        let row_n = to_row(row_idx + 1);
         worksheet
             .write_with_format(row_n, 0, field.as_str(), &field_format)
             .map_err(|e| xlsx_err(&e))?;
@@ -137,6 +147,7 @@ fn write_key_values_sheet(worksheet: &mut Worksheet, kv: &KeyValueSection) -> Ap
     }
     worksheet.set_column_width(0, 24).map_err(|e| xlsx_err(&e))?;
     worksheet.set_column_width(1, 80).map_err(|e| xlsx_err(&e))?;
+    worksheet.set_freeze_panes(1, 0).map_err(|e| xlsx_err(&e))?;
     Ok(())
 }
 
