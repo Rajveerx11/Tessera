@@ -38,10 +38,17 @@ test.describe('desktop app flow', () => {
     await page.getByRole('button', { name: 'Open Test Plan - express-api' }).click();
     const drawer = page.getByRole('dialog', { name: 'Test Plan - express-api' });
     await expect(drawer).toBeVisible();
-    await expect(drawer.getByText('Covers the express-api auth and health flows.')).toBeVisible();
+    // v2 structured payloads render the structured summary, not the markdown body.
+    await expect(
+      drawer.getByText('Validate the Express API auth and health flows.'),
+    ).toBeVisible();
 
     await drawer.getByRole('button', { name: 'Approve' }).click();
-    await expect(drawer.getByText('Approved')).toBeVisible();
+    // Both the header status pill ("approved") and the footer lifecycle
+    // pill ("Approved") flip after approval now that the header tracks
+    // the live artifact summary — a bare substring match resolves to two
+    // elements under strict mode, so assert the exact footer text.
+    await expect(drawer.getByText('Approved', { exact: true })).toBeVisible();
 
     // Markdown export now lives inside the export-format dropdown.
     await drawer.getByRole('button', { name: 'Export', exact: true }).click();

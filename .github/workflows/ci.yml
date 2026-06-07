@@ -220,6 +220,95 @@ jobs:
       - name: Run Playwright E2E suite
         run: pnpm --filter @testing-ide/desktop run test:e2e
 
+  sandbox-runner-test:
+    name: sandbox-runner-test
+    # End-to-end gate for the opt-in Docker sandbox (plan §7, ADR-0004):
+    # builds the local-first `tessera-runner-js` image from its Dockerfile
+    # and runs the Docker-gated `#[ignore]`d test that executes a real
+    # vitest suite inside the hardened container (`--network none`,
+    # `--cap-drop ALL`, read-only rootfs). Deterministic — no LLM, no
+    # external service — so unlike integration-test this is a blocking
+    # gate. Catches image regressions (e.g. the NODE_PATH/ESM resolution
+    # break fixed in #55) that unit tests structurally cannot see.
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      # Optional: when set as repo secrets, the build step authenticates to
+      # Docker Hub instead of pulling anonymously. Anonymous pulls share a
+      # rate-limit quota across all GitHub-hosted runner IPs, and a 429 on
+      # this blocking gate would stall PRs for reasons unrelated to the code.
+      DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install Linux Tauri deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libssl-dev \
+            libgtk-3-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            build-essential \
+            curl \
+            wget \
+            file
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: apps/desktop/src-tauri
+
+      - name: Restore cached runner image
+        # The base image is digest-pinned, so the Dockerfile hash fully
+        # determines the build output. A cache hit skips Docker Hub entirely
+        # — the registry is only touched when the Dockerfile changes or the
+        # cache was evicted, which keeps the blocking gate clear of
+        # anonymous pull rate limits on routine runs.
+        id: runner-image-cache
+        uses: actions/cache@v4
+        with:
+          path: /tmp/tessera-runner-js.tar
+          key: tessera-runner-js-${{ hashFiles('apps/desktop/src-tauri/docker/Dockerfile.runner-js') }}
+
+      - name: Load cached runner image
+        if: steps.runner-image-cache.outputs.cache-hit == 'true'
+        run: docker load -i /tmp/tessera-runner-js.tar
+
+      - name: Log in to Docker Hub
+        # Only on a cache miss, and only when the optional secrets exist —
+        # forks and secretless runs still work, just anonymously.
+        if: steps.runner-image-cache.outputs.cache-hit != 'true' && env.DOCKERHUB_USERNAME != ''
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Build sandbox runner image
+        if: steps.runner-image-cache.outputs.cache-hit != 'true'
+        # Retry with backoff so a transient registry failure (429 from the
+        # shared anonymous quota, network blip) does not hard-fail the gate.
+        run: |
+          for attempt in 1 2 3; do
+            if docker build -t tessera-runner-js \
+                -f apps/desktop/src-tauri/docker/Dockerfile.runner-js \
+                apps/desktop/src-tauri/docker; then
+              docker save tessera-runner-js -o /tmp/tessera-runner-js.tar
+              exit 0
+            fi
+            echo "::warning::docker build failed (attempt ${attempt}/3); retrying in $((attempt * 30))s"
+            sleep $((attempt * 30))
+          done
+          echo "::error::docker build failed after 3 attempts"
+          exit 1
+
+      - name: Run Docker-gated sandbox runner test
+        run: |
+          cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml --locked --lib \
+            -- --ignored docker_runner_executes
+
   integration-test:
     name: integration-test (ubuntu)
     runs-on: ubuntu-latest
@@ -249,6 +338,14 @@ jobs:
           OLLAMA_MAX_LOADED_MODELS: "2"
           OLLAMA_KEEP_ALIVE: "30m"
           OLLAMA_NUM_PARALLEL: "1"
+          # Ollama defaults to a 4096-token context. The v2 test-cases
+          # prompt plus the 6k response reserve overflows that, forcing
+          # a server-side context shift that discards the prompt — the
+          # model then rambles to max_tokens and trips the 600s client
+          # timeout (StreamInterrupted). 16k fits prompt + response with
+          # headroom; KV cache for a 3B model at 16k is well within the
+          # 7 GB runner.
+          OLLAMA_CONTEXT_LENGTH: "16384"
     steps:
       - uses: actions/checkout@v6
 
@@ -312,9 +409,11 @@ jobs:
 
       - name: Warm up Ollama models
         # First chat / embedding request after `ollama pull` triggers a
-        # cold load that can take 60s+ on the free runner. Warming up
-        # here means the Vitest suite hits an already-loaded model and
-        # does not race the 300s HTTP timeout in the Rust client.
+        # cold load that can take 60s+ on the free runner — and with
+        # OLLAMA_CONTEXT_LENGTH=16384 the load also pre-allocates the
+        # full 16k KV cache. Warming up here means the Vitest suite hits
+        # an already-loaded model and does not race the 600s HTTP
+        # timeout in the Rust client.
         run: |
           curl --fail --silent --max-time 300 http://127.0.0.1:11434/api/generate \
             -d '{"model":"qwen2.5-coder:3b","prompt":"hi","stream":false,"keep_alive":"30m"}' >/dev/null

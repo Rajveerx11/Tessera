@@ -17,12 +17,19 @@
 //! - [`test_cases_v2`] — v1 plus `TestRail` separated steps
 //!   (`{ action, expectedResult }`), case `type`, `testData`,
 //!   `postconditions`; the runnable `files[]` contract is unchanged.
+//! - [`test_plan_v2`] — v1 plus nested `scope`, `suspensionCriteria`,
+//!   `testLevels` / `testTypes` enums, `deliverables` (29119-lite).
 //! - [`defect_report_v1`] — static-analysis findings (severity,
 //!   category, location, suggested fix, confidence).
+//! - [`defect_report_v2`] — v1 plus CWE-aligned categories, required
+//!   `fixSuggestion`, evidence parity with the bug report.
 //! - [`bug_report_v1`] — runtime-issue tracking docs formatted for
 //!   issue-tracker import.
 //! - [`bug_report_v2`] — v1 plus severity↔priority split (5-level
 //!   severity), `reproducibility`, `workaround`, `component`.
+//! - [`runnable_files_v1`] — focused repair pass that emits only the
+//!   runnable `files[]` workspace when a test-cases generation skipped
+//!   the optional array (sandbox prerequisite).
 //!
 //! Every prompt:
 //! - Returns `Vec<Message>` ready to feed into an `LlmProvider`.
@@ -41,9 +48,12 @@ pub mod bug_report_v1;
 pub mod bug_report_v2;
 pub mod context_md_v1;
 pub mod defect_report_v1;
+pub mod defect_report_v2;
+pub mod runnable_files_v1;
 pub mod test_cases_v1;
 pub mod test_cases_v2;
 pub mod test_plan_v1;
+pub mod test_plan_v2;
 
 #[cfg(test)]
 mod snapshots;
@@ -150,6 +160,66 @@ pub fn system_text(text: impl Into<String>) -> Message {
         role: crate::providers::llm::types::Role::System,
         content: vec![Content::Text { text: text.into() }],
     }
+}
+
+/// Per-artifact wording for [`render_user_body`]. Each v2 prompt keeps
+/// its own section headings (locked by message snapshots) while sharing
+/// the assembly mechanics.
+#[derive(Debug, Clone, Copy)]
+pub struct UserBodyOptions<'a> {
+    /// Heading for the project-summary section, without the `## ` prefix.
+    pub context_heading: &'a str,
+    /// When `Some`, the context section is always emitted and this note
+    /// stands in for an empty summary (test-plan style). When `None`,
+    /// an empty summary skips the section entirely.
+    pub empty_context_note: Option<&'a str>,
+    /// Heading for the reviewer-feedback section (skipped when empty).
+    pub feedback_heading: &'a str,
+    /// Heading for the code-chunks section.
+    pub code_heading: &'a str,
+}
+
+/// Assemble the shared user-message preamble every v2 prompt uses:
+/// project header → optional scope → project context → optional
+/// reviewer feedback → code chunks. Callers append their per-artifact
+/// `[CRITICAL INSTRUCTION]` tail. v1 modules keep their inline bodies
+/// (frozen by snapshots); the v2 message snapshots lock this output.
+#[must_use]
+pub fn render_user_body(ctx: &PromptContext<'_>, opts: &UserBodyOptions<'_>) -> String {
+    let mut body = String::new();
+    writeln!(body, "# Project: {}\n", ctx.project_name).expect("write");
+
+    if !ctx.scope_hint.is_empty() {
+        writeln!(body, "Scope: {}\n", ctx.scope_hint).expect("write");
+    }
+
+    if !ctx.project_summary.is_empty() {
+        body.push_str("## ");
+        body.push_str(opts.context_heading);
+        body.push_str("\n\n");
+        body.push_str(ctx.project_summary);
+        body.push_str("\n\n");
+    } else if let Some(note) = opts.empty_context_note {
+        body.push_str("## ");
+        body.push_str(opts.context_heading);
+        body.push_str("\n\n");
+        body.push_str(note);
+        body.push_str("\n\n");
+    }
+
+    if !ctx.reviewer_feedback.is_empty() {
+        body.push_str("## ");
+        body.push_str(opts.feedback_heading);
+        body.push_str("\n\n");
+        body.push_str(ctx.reviewer_feedback);
+        body.push_str("\n\n");
+    }
+
+    body.push_str("## ");
+    body.push_str(opts.code_heading);
+    body.push_str("\n\n");
+    body.push_str(&ctx.render_chunks());
+    body
 }
 
 /// JSON-Schema for the runnable `files[]` workspace carried on a
