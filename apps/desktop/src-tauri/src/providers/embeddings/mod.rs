@@ -24,6 +24,21 @@ pub use huggingface::HuggingFaceEmbeddingProvider;
 pub use ollama::OllamaEmbeddingProvider;
 pub use openai_compat::OpenAiCompatEmbeddingProvider;
 
+/// Parse a `Retry-After` header carrying whole seconds. Date-formatted
+/// values (the other RFC 9110 form) are rare on embedding endpoints
+/// and not worth a date dependency — they fall through to `None`.
+/// Shared by the HTTP-backed providers; must be called **before** the
+/// response body is consumed.
+pub(crate) fn parse_retry_after(headers: &reqwest::header::HeaderMap) -> Option<u64> {
+    headers
+        .get(reqwest::header::RETRY_AFTER)?
+        .to_str()
+        .ok()?
+        .trim()
+        .parse()
+        .ok()
+}
+
 /// Compose the `embedding_provider` string written on every chunk and
 /// used to scope vector searches: `{provider name}-{model}`. Single
 /// definition — `analysis_service` (chunk writes), `generation_service`

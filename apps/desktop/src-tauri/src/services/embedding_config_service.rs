@@ -123,7 +123,7 @@ pub async fn save_config(
     args: SaveEmbeddingConfigArgs,
 ) -> AppResult<EmbeddingConfigView> {
     let kind = EmbeddingProviderKind::from_str_value(&args.provider)?;
-    let model = validate_model(&args.model)?;
+    let model = validate_model(kind, &args.model)?;
     validate_dimension(args.dimension)?;
 
     let existing =
@@ -207,7 +207,7 @@ pub async fn test_connection(
     args: SaveEmbeddingConfigArgs,
 ) -> AppResult<TestEmbeddingResult> {
     let kind = EmbeddingProviderKind::from_str_value(&args.provider)?;
-    let model = validate_model(&args.model)?;
+    let model = validate_model(kind, &args.model)?;
 
     let api_key = match args.api_key.as_deref().map(str::trim) {
         Some(key) if !key.is_empty() => Some(key.to_string()),
@@ -377,17 +377,11 @@ async fn resolve_llm_key_fallback(
 }
 
 /// The composite `embedding_provider` string written on every chunk —
-/// single format definition in [`chunk_scope_string`]. The runtime
-/// name comes from the concrete provider impl, so Ollama Cloud shares
-/// local Ollama's `"ollama"`.
+/// format defined by [`chunk_scope_string`], kind → runtime-name
+/// mapping defined by `EmbeddingProviderKind::runtime_provider_name`
+/// (drift-guarded by a factory test against the concrete impls).
 fn chunk_provider_string(config: &EmbeddingConfig) -> String {
-    let name = match config.kind {
-        EmbeddingProviderKind::Ollama | EmbeddingProviderKind::OllamaCloud => "ollama",
-        EmbeddingProviderKind::OpenAi => "openai",
-        EmbeddingProviderKind::Gemini => "gemini",
-        EmbeddingProviderKind::HuggingFace => "huggingface",
-    };
-    chunk_scope_string(name, &config.model)
+    chunk_scope_string(config.kind.runtime_provider_name(), &config.model)
 }
 
 /// Local-Ollama rows (and the implicit default) fall back to the
@@ -397,10 +391,22 @@ fn ollama_fallback_base(kind: EmbeddingProviderKind, ollama_base_url: &str) -> O
     matches!(kind, EmbeddingProviderKind::Ollama).then(|| ollama_base_url.to_string())
 }
 
-fn validate_model(model: &str) -> AppResult<String> {
+fn validate_model(kind: EmbeddingProviderKind, model: &str) -> AppResult<String> {
     let trimmed = model.trim();
     if trimmed.is_empty() {
         return Err(AppError::InvalidInput("embedding model is empty".into()));
+    }
+    // HF model ids are interpolated into the endpoint URL path —
+    // reject URL-breaking input here with a proper input-validation
+    // error instead of letting the provider's defense-in-depth guard
+    // surface it as an `LLM_*` code.
+    if kind == EmbeddingProviderKind::HuggingFace
+        && !crate::providers::embeddings::huggingface::is_valid_model_id(trimmed)
+    {
+        return Err(AppError::InvalidInput(format!(
+            "invalid Hugging Face model id `{trimmed}` — model ids may only \
+             contain letters, numbers, '.', '_', '-' and '/'"
+        )));
     }
     Ok(trimmed.to_string())
 }
@@ -536,6 +542,21 @@ mod tests {
         bad.dimension = MAX_DIMENSION + 1;
         assert_eq!(
             save_config(&pool, &crypto, bad).await.expect_err("dim cap").code(),
+            "INVALID_INPUT"
+        );
+
+        // HF model ids are URL-path-interpolated — URL-breaking input
+        // must fail as INVALID_INPUT at the service boundary, not as an
+        // LLM_* code from the provider's defense-in-depth guard.
+        let bad = SaveEmbeddingConfigArgs {
+            provider: "huggingface".into(),
+            model: "org/model?x=1".into(),
+            dimension: 1024,
+            base_url: None,
+            api_key: Some("hf_x".into()),
+        };
+        assert_eq!(
+            save_config(&pool, &crypto, bad).await.expect_err("hf model").code(),
             "INVALID_INPUT"
         );
 

@@ -244,6 +244,22 @@ impl EmbeddingProviderKind {
     pub fn requires_api_key(self) -> bool {
         !matches!(self, Self::Ollama)
     }
+
+    /// The runtime `EmbeddingProvider::name()` the built provider will
+    /// report — Ollama Cloud reuses the local Ollama impl, so both map
+    /// to `"ollama"`. Single definition of the kind → runtime-name
+    /// mapping; `embedding_config_service` composes chunk-scope strings
+    /// from it without building a provider (no key needed). Kept honest
+    /// by the `runtime_name_matches_built_provider` test below.
+    #[must_use]
+    pub fn runtime_provider_name(self) -> &'static str {
+        match self {
+            Self::Ollama | Self::OllamaCloud => "ollama",
+            Self::OpenAi => "openai",
+            Self::Gemini => "gemini",
+            Self::HuggingFace => "huggingface",
+        }
+    }
 }
 
 /// Resolved embedding configuration handed to the factory by
@@ -704,6 +720,27 @@ mod tests {
             .expect("hf embed ok");
         assert_eq!(name, "huggingface");
         assert_eq!(model, "BAAI/bge-m3");
+    }
+
+    #[test]
+    fn runtime_name_matches_built_provider() {
+        // Guards the kind → runtime-name mapping against drifting from
+        // what the concrete impls actually report via `name()`.
+        for kind in [
+            EmbeddingProviderKind::Ollama,
+            EmbeddingProviderKind::OllamaCloud,
+            EmbeddingProviderKind::OpenAi,
+            EmbeddingProviderKind::Gemini,
+            EmbeddingProviderKind::HuggingFace,
+        ] {
+            let provider = build_embedding_provider(&embedding_cfg(kind, Some("test-key")))
+                .expect("provider builds");
+            assert_eq!(
+                provider.name(),
+                kind.runtime_provider_name(),
+                "kind {kind:?}"
+            );
+        }
     }
 
     #[test]

@@ -16,7 +16,7 @@ use async_trait::async_trait;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 
-use super::EmbeddingProvider;
+use super::{parse_retry_after, EmbeddingProvider};
 use crate::providers::llm::error::LlmError;
 
 const DEFAULT_TIMEOUT_SECONDS: u64 = 60;
@@ -193,19 +193,6 @@ impl EmbeddingProvider for OpenAiCompatEmbeddingProvider {
         }
         Ok(out)
     }
-}
-
-/// Parse a `Retry-After` header carrying whole seconds. Date-formatted
-/// values (the other RFC 9110 form) are rare on embedding endpoints
-/// and not worth a date dependency — they fall through to `None`.
-fn parse_retry_after(headers: &reqwest::header::HeaderMap) -> Option<u64> {
-    headers
-        .get(reqwest::header::RETRY_AFTER)?
-        .to_str()
-        .ok()?
-        .trim()
-        .parse()
-        .ok()
 }
 
 #[derive(Debug, Serialize)]

@@ -13,7 +13,7 @@ use async_trait::async_trait;
 use reqwest::Client;
 use serde::Serialize;
 
-use super::EmbeddingProvider;
+use super::{parse_retry_after, EmbeddingProvider};
 use crate::providers::llm::error::LlmError;
 
 /// Provider name used in `LlmError::provider` and chunk metadata.
@@ -95,21 +95,37 @@ impl HuggingFaceEmbeddingProvider {
     }
 }
 
-/// HF model ids are `[A-Za-z0-9._/-]` in practice. Reject anything that
-/// could splice the URL path or query (`?`, `#`, whitespace, `..`
-/// traversal) since the id is interpolated into the endpoint.
-fn validate_model_id(model: &str) -> Result<(), LlmError> {
-    let well_formed = !model.is_empty()
+/// Whether `model` is a well-formed HF model id (`[A-Za-z0-9._/-]`, no
+/// `..` traversal). The id is interpolated into the endpoint path, so
+/// anything that could splice the URL (`?`, `#`, whitespace) is
+/// rejected. Exposed so `embedding_config_service` can validate user
+/// input up front with a proper `AppError::InvalidInput` — the
+/// constructor guard below is defense in depth, not the primary
+/// validation surface.
+#[must_use]
+pub fn is_valid_model_id(model: &str) -> bool {
+    !model.is_empty()
         && !model.contains("..")
         && model
             .chars()
-            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '/' | '-'));
-    if well_formed {
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '/' | '-'))
+}
+
+fn validate_model_id(model: &str) -> Result<(), LlmError> {
+    if is_valid_model_id(model) {
         Ok(())
     } else {
+        // `LlmError` has no input-validation variant; this guard is
+        // unreachable through the IPC path (the service rejects bad
+        // ids with `AppError::InvalidInput` first), so the message
+        // states explicitly that no request was sent.
         Err(LlmError::InvalidResponse {
             provider: PROVIDER_NAME,
-            message: format!("invalid Hugging Face model id `{model}`"),
+            message: format!(
+                "invalid Hugging Face model id `{model}` — rejected before \
+                 any request was sent. Model ids may only contain letters, \
+                 numbers, '.', '_', '-' and '/'.",
+            ),
         })
     }
 }
@@ -154,6 +170,8 @@ impl EmbeddingProvider for HuggingFaceEmbeddingProvider {
 
         let status = response.status();
         if !status.is_success() {
+            // Headers must be read before `.text()` consumes the response.
+            let retry_after = parse_retry_after(response.headers());
             let preview: String = response
                 .text()
                 .await
@@ -177,7 +195,7 @@ impl EmbeddingProvider for HuggingFaceEmbeddingProvider {
                 },
                 429 => LlmError::RateLimited {
                     provider: PROVIDER_NAME,
-                    retry_after_seconds: None,
+                    retry_after_seconds: retry_after,
                 },
                 503 if preview.contains("loading") || preview.contains("estimated_time") => {
                     // Cold models return 503 with an estimated warm-up
@@ -388,6 +406,29 @@ mod tests {
         let p = provider_at(&server, 4);
         let err = p.embed(vec!["x".into()]).await.expect_err("must error");
         assert_eq!(err.code(), "LLM_AUTH_FAILED");
+        mock.assert_async().await;
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn http_429_carries_retry_after_seconds() {
+        let mut server = Server::new_async().await;
+        let mock = server
+            .mock("POST", MODEL_PATH)
+            .with_status(429)
+            .with_header("retry-after", "45")
+            .with_body("rate limited")
+            .create_async()
+            .await;
+
+        let p = provider_at(&server, 4);
+        let err = p.embed(vec!["x".into()]).await.expect_err("must error");
+        match err {
+            LlmError::RateLimited {
+                retry_after_seconds,
+                ..
+            } => assert_eq!(retry_after_seconds, Some(45)),
+            other => panic!("expected RateLimited, got {other:?}"),
+        }
         mock.assert_async().await;
     }
 
