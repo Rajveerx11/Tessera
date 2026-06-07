@@ -15,7 +15,7 @@ the [README](../README.md).
 | ~~**No test execution**~~ — **shipped for JS/TS:** opt-in Docker sandbox runs generated cases and reports pass/fail + coverage | Closed the generate→run→measure loop | Python (`docker_py`) + cloud runners next, behind the same `TestRunner` trait |
 | **Embedding provider lock-in** — Ollama embeddings only, no cloud fallback | RAG quality bottleneck without a local GPU | OpenAI / Voyage AI / Cohere embedding providers behind the existing `EmbeddingProvider` trait |
 | **Minimal E2E coverage** — one Playwright spec, no error-path tests | UI-flow regressions go undetected | Expand to 10–15 specs: generation flow, provider switching, error states, export |
-| **No export integrations** — artifacts live only in local SQLite | Can't push to JIRA / Linear / GitHub Issues | Per-platform export adapters + clipboard-friendly Markdown |
+| **No export integrations** — artifacts live only in local SQLite | Can't push to JIRA / Linear / GitHub Issues | Excel/CSV/TSV export first, then Jira API adapter — plan in [`ARTIFACT_EXPORT.md`](./ARTIFACT_EXPORT.md) |
 | **No observability** — no coverage reports, perf metrics, or usage analytics | Hard to track quality over time | LCOV in CI, opt-in telemetry (PostHog/Plausible), bundle-size tracking |
 | **Static prompts** — v1 prompts are hardcoded | Power users can't tune generation | User-editable prompt templates with variable substitution + prompt A/B testing |
 | **Basic artifact schemas** — happy-path test cases, bug reports without repro steps | Artifacts below professional QA bar | **Artifact Quality v2** — IEEE 829 / ISO 29119-3 / ISTQB-aligned schemas; 3-phase plan in [`ARTIFACT_QUALITY_V2.md`](./ARTIFACT_QUALITY_V2.md) |
