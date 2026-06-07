@@ -1406,6 +1406,33 @@ fn coerce_structured_strings(
     }
 }
 
+/// Swap `startLine`/`endLine` when a model emits them inverted. JSON
+/// Schema cannot express the cross-field `endLine >= startLine`
+/// invariant, but the shared Zod mirrors refine on it — an inverted
+/// range would validate here, get stored, and then fail the frontend
+/// parse (dropping the structured view). Only fires when the schema at
+/// this level declares both keys (defect `location`, bug `rootCause`).
+fn swap_inverted_line_range(
+    obj: &mut serde_json::Map<String, JsonValue>,
+    properties: &serde_json::Map<String, JsonValue>,
+) {
+    const START: &str = "startLine";
+    const END: &str = "endLine";
+    if !properties.contains_key(START) || !properties.contains_key(END) {
+        return;
+    }
+    let (Some(start), Some(end)) = (
+        obj.get(START).and_then(JsonValue::as_i64),
+        obj.get(END).and_then(JsonValue::as_i64),
+    ) else {
+        return;
+    };
+    if end < start {
+        obj.insert(START.to_string(), JsonValue::from(end));
+        obj.insert(END.to_string(), JsonValue::from(start));
+    }
+}
+
 fn normalize_value_recursively(data: &mut JsonValue, schema: &JsonValue) {
     match data {
         JsonValue::Object(obj) => {
@@ -1495,6 +1522,10 @@ fn normalize_value_recursively(data: &mut JsonValue, schema: &JsonValue) {
             // (e.g. `testData` emitted as a JSON object of inputs).
             coerce_structured_strings(obj, properties);
 
+            // 2d. Swap inverted `startLine`/`endLine` pairs so stored
+            // payloads satisfy the Zod cross-field refinement.
+            swap_inverted_line_range(obj, properties);
+
             // 3. Missing arrays normalization: Insert [] for required array fields if absent
             if let Some(required) = schema.get("required").and_then(|v| v.as_array()) {
                 for req_key_val in required {
@@ -1539,9 +1570,9 @@ fn normalize_value_recursively(data: &mut JsonValue, schema: &JsonValue) {
 /// Small / non-tool-trained LLMs frequently omit object keys whose value would be an empty array,
 /// emit keys with incorrect casing (`camelCase` instead of `snake_case`), flatten a nested
 /// object's keys onto its parent (e.g. `location.symbol` emitted as a top-level `symbol` on a
-/// defect finding), or flatten a single array element's keys onto its parent (e.g. one step's
-/// `action` / `expectedResult` emitted on the test case). This function normalizes all four
-/// recursively.
+/// defect finding), flatten a single array element's keys onto its parent (e.g. one step's
+/// `action` / `expectedResult` emitted on the test case), or invert `startLine`/`endLine`
+/// pairs. This function normalizes all five recursively.
 pub(crate) fn normalize_missing_arrays(data: &mut JsonValue, tool: &ToolSchema) {
     normalize_value_recursively(data, &tool.parameters_schema);
 }
@@ -2675,6 +2706,62 @@ mod tests {
         );
         assert!(bug.get("symbol").is_none());
         assert!(bug.get("file_hint").is_none());
+    }
+
+    #[test]
+    fn normalize_swaps_inverted_bug_root_cause_line_range() {
+        // JSON Schema cannot express `endLine >= startLine`, but the
+        // shared Zod mirror refines on it — an inverted range stored
+        // here would fail the frontend parse and drop the structured
+        // view. The normalization pass swaps the pair instead.
+        let schema = bug_report_v2::tool();
+        let mut data = serde_json::json!({
+            "bugs": [{
+                "id": "BUG-SAVE-RACE",
+                "title": "Report save races under load",
+                "severity": "major",
+                "priority": "p1",
+                "reproducibility": "always",
+                "stepsToReproduce": ["1. Save twice quickly"],
+                "expectedBehavior": "One report row is written",
+                "actualBehavior": "Two rows are written",
+                "rootCause": {
+                    "symbol": "saveReport",
+                    "startLine": 20,
+                    "endLine": 10,
+                    "explanation": "No write lock around the insert."
+                }
+            }]
+        });
+        normalize_missing_arrays(&mut data, &schema);
+        validate_tool_output(&schema, &data).expect("inverted range heals to valid");
+        let cause = &data["bugs"][0]["rootCause"];
+        assert_eq!(cause["startLine"], 10);
+        assert_eq!(cause["endLine"], 20);
+    }
+
+    #[test]
+    fn normalize_swaps_inverted_defect_location_line_range() {
+        let schema = defect_report_v2::tool();
+        let mut data = serde_json::json!({
+            "findings": [{
+                "id": "DEF-PARSE-CRASH",
+                "severity": "major",
+                "category": "input_validation",
+                "confidence": "high",
+                "location": { "symbol": "parseUser", "startLine": 42, "endLine": 7 },
+                "description": "Unvalidated JSON.parse crashes on bad input.",
+                "impact": "Request handler panics.",
+                "fixSuggestion": "Wrap in try/catch and return 400.",
+                "evidenceSnippet": "return JSON.parse(s);"
+            }],
+            "summary": "One high-confidence defect."
+        });
+        normalize_missing_arrays(&mut data, &schema);
+        validate_tool_output(&schema, &data).expect("inverted range heals to valid");
+        let location = &data["findings"][0]["location"];
+        assert_eq!(location["startLine"], 7);
+        assert_eq!(location["endLine"], 42);
     }
 
     #[test]

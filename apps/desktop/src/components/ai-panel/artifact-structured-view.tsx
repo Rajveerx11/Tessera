@@ -219,10 +219,12 @@ function TestPlanView({ data }: { data: TestPlan }) {
         ))}
       </div>
       <StringList label="Objectives" items={data.objectives} />
-      <div className="grid grid-cols-2 gap-2 rounded-md border border-border bg-card p-3">
-        <StringList label="In scope" items={data.scope.inScope} />
-        <StringList label="Out of scope" items={data.scope.outOfScope} />
-      </div>
+      {data.scope.inScope.length > 0 || data.scope.outOfScope.length > 0 ? (
+        <div className="grid grid-cols-2 gap-2 rounded-md border border-border bg-card p-3">
+          <StringList label="In scope" items={data.scope.inScope} />
+          <StringList label="Out of scope" items={data.scope.outOfScope} />
+        </div>
+      ) : null}
       <div>
         <p className={FIELD_LABEL_CLASS}>Strategy</p>
         <p className="mt-1 text-xs">{data.strategy}</p>
@@ -249,11 +251,15 @@ function TestPlanView({ data }: { data: TestPlan }) {
           </table>
         </div>
       ) : null}
-      <div className="grid grid-cols-3 gap-2 rounded-md border border-border bg-card p-3">
-        <StringList label="Entry criteria" items={data.entryCriteria} />
-        <StringList label="Exit criteria" items={data.exitCriteria} />
-        <StringList label="Suspension criteria" items={data.suspensionCriteria} />
-      </div>
+      {data.entryCriteria.length > 0 ||
+      data.exitCriteria.length > 0 ||
+      data.suspensionCriteria.length > 0 ? (
+        <div className="grid grid-cols-3 gap-2 rounded-md border border-border bg-card p-3">
+          <StringList label="Entry criteria" items={data.entryCriteria} />
+          <StringList label="Exit criteria" items={data.exitCriteria} />
+          <StringList label="Suspension criteria" items={data.suspensionCriteria} />
+        </div>
+      ) : null}
       <StringList label="Deliverables" items={data.deliverables} />
     </div>
   );
