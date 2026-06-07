@@ -29,7 +29,8 @@ use sqlx::SqlitePool;
 
 use crate::error::{AppError, AppResult};
 use crate::prompts::{
-    bug_report_v2, context_md_v1, defect_report_v1, test_cases_v2, test_plan_v1, PromptContext,
+    bug_report_v2, context_md_v1, defect_report_v2, runnable_files_v1, test_cases_v2,
+    test_plan_v2, PromptContext,
 };
 use crate::providers::embeddings::EmbeddingProvider;
 use crate::providers::llm::types::{Chunk as LlmChunk, GenerateRequest, Message, ToolSchema};
@@ -172,24 +173,7 @@ pub async fn generate(
         .max_context_tokens
         .saturating_sub(RESPONSE_RESERVE_TOKENS);
 
-    let mut selected_chunks = Vec::new();
-    for chunk in &chunks {
-        let mut test_chunks = selected_chunks.clone();
-        test_chunks.push(chunk.clone());
-        let ctx = PromptContext {
-            project_name: &request.project_name,
-            project_summary: &request.project_summary,
-            chunks: &test_chunks,
-            scope_hint: &request.scope_hint,
-            reviewer_feedback: &request.reviewer_feedback,
-        };
-        let (messages, _, _) = build_prompt(request.artifact_type, &ctx);
-        let prompt_token_estimate = estimate_prompt_tokens(&messages);
-        if prompt_token_estimate > budget {
-            break;
-        }
-        selected_chunks.push(chunk.clone());
-    }
+    let selected_chunks = select_chunks_within_budget(&request, &chunks, budget);
 
     let ctx = PromptContext {
         project_name: &request.project_name,
@@ -227,8 +211,20 @@ pub async fn generate(
         serde_json::from_str(&raw_json).map_err(AppError::Serde)?;
     normalize_missing_arrays(&mut structured_data, &tool_schema);
     validate_tool_output(&tool_schema, &structured_data)?;
-    let input_tokens = aggregated.input_tokens;
-    let output_tokens = aggregated.output_tokens;
+
+    // 5b. Self-heal the runnable workspace when a test-cases payload
+    //     skipped the optional `files[]` (sandbox prerequisite).
+    let (repair_input, repair_output) = ensure_runnable_files(
+        &request,
+        deps,
+        &ctx,
+        &tool_schema,
+        &mut structured_data,
+        budget,
+    )
+    .await?;
+    let input_tokens = aggregated.input_tokens.saturating_add(repair_input);
+    let output_tokens = aggregated.output_tokens.saturating_add(repair_output);
 
     // 6. Persist.
     let completed_at = Utc::now().to_rfc3339();
@@ -328,6 +324,167 @@ fn detect_non_tool_call_format(text: &str) -> Option<&'static str> {
     } else {
         None
     }
+}
+
+/// `true` when the payload already carries a non-empty runnable
+/// `files[]` workspace the sandbox runner can execute.
+fn has_runnable_files(structured_data: &JsonValue) -> bool {
+    structured_data
+        .get("files")
+        .and_then(JsonValue::as_array)
+        .is_some_and(|files| !files.is_empty())
+}
+
+/// Greedy chunk selection for [`generate`] step 2: admit retrieved
+/// chunks in relevance order until adding the next one would push the
+/// assembled prompt past the model's token budget.
+fn select_chunks_within_budget(
+    request: &GenerationRequest,
+    chunks: &[CodeChunk],
+    budget: u32,
+) -> Vec<CodeChunk> {
+    let mut selected: Vec<CodeChunk> = Vec::new();
+    for chunk in chunks {
+        let mut test_chunks = selected.clone();
+        test_chunks.push(chunk.clone());
+        let ctx = PromptContext {
+            project_name: &request.project_name,
+            project_summary: &request.project_summary,
+            chunks: &test_chunks,
+            scope_hint: &request.scope_hint,
+            reviewer_feedback: &request.reviewer_feedback,
+        };
+        let (messages, _, _) = build_prompt(request.artifact_type, &ctx);
+        if estimate_prompt_tokens(&messages) > budget {
+            break;
+        }
+        selected.push(chunk.clone());
+    }
+    selected
+}
+
+/// Step 5b of [`generate`] — self-heal the runnable workspace. `files[]`
+/// is optional in the test-cases schema (descriptive-only scopes stay
+/// valid), but some models — observed with Gemini via the OpenAI-compat
+/// surface — consistently skip optional fields, leaving an artifact the
+/// sandbox runner rejects ("artifact has no runnable test files"). A
+/// focused follow-up call asks for *only* the `files` array and merges
+/// it into `structured_data`. Best-effort: a repair failure keeps the
+/// cases-only artifact instead of failing the whole generation. Returns
+/// the extra `(input_tokens, output_tokens)` spent by the repair pass.
+///
+/// # Errors
+///
+/// Only a post-merge schema-validation failure errors — repair-pass LLM
+/// failures are logged and swallowed.
+async fn ensure_runnable_files(
+    request: &GenerationRequest,
+    deps: &GenerationDeps<'_>,
+    ctx: &PromptContext<'_>,
+    tool_schema: &ToolSchema,
+    structured_data: &mut JsonValue,
+    budget: u32,
+) -> AppResult<(u32, u32)> {
+    if request.artifact_type != ArtifactType::TestCases || has_runnable_files(structured_data) {
+        return Ok((0, 0));
+    }
+    match repair_runnable_files(request, deps, ctx, structured_data, budget).await {
+        Ok(Some(repair)) => {
+            if let Some(obj) = structured_data.as_object_mut() {
+                obj.insert("files".to_string(), repair.files);
+            }
+            // The repair item contract is byte-identical to the
+            // test-cases `files` schema, so the merged payload must
+            // still validate — re-check to make that invariant loud.
+            validate_tool_output(tool_schema, structured_data)?;
+            Ok((repair.input_tokens, repair.output_tokens))
+        }
+        Ok(None) => Ok((0, 0)),
+        Err(err) => {
+            tracing::warn!(
+                model = %request.model,
+                error = %err,
+                "runnable-files repair pass failed; persisting cases without files[]"
+            );
+            Ok((0, 0))
+        }
+    }
+}
+
+/// Outcome of a successful [`repair_runnable_files`] pass.
+struct RunnableFilesRepair {
+    files: JsonValue,
+    input_tokens: u32,
+    output_tokens: u32,
+}
+
+/// Focused follow-up generation that produces only the runnable
+/// `files[]` array for an already-validated test-cases payload
+/// (`prompts::runnable_files_v1`). Returns `Ok(None)` when the repair
+/// is not applicable (no code chunks to reproduce, or the repair
+/// prompt would blow the context budget).
+///
+/// # Errors
+///
+/// Propagates LLM/stream errors and schema-validation failures of the
+/// repair payload — the caller logs and continues without `files[]`.
+async fn repair_runnable_files(
+    request: &GenerationRequest,
+    deps: &GenerationDeps<'_>,
+    ctx: &PromptContext<'_>,
+    structured_data: &JsonValue,
+    budget: u32,
+) -> AppResult<Option<RunnableFilesRepair>> {
+    if ctx.chunks.is_empty() {
+        // Nothing to reproduce as source-under-test; the artifact is
+        // legitimately descriptive-only.
+        return Ok(None);
+    }
+
+    let cases = structured_data.get("cases").cloned().unwrap_or_default();
+    let cases_json = serde_json::to_string_pretty(&cases).map_err(AppError::Serde)?;
+    let messages = runnable_files_v1::build_messages(ctx, &cases_json);
+    let tool = runnable_files_v1::tool();
+
+    let prompt_token_estimate = estimate_prompt_tokens(&messages);
+    if prompt_token_estimate > budget {
+        tracing::warn!(
+            prompt_token_estimate,
+            budget,
+            "skipping runnable-files repair: prompt exceeds context budget"
+        );
+        return Ok(None);
+    }
+
+    let llm_request = GenerateRequest {
+        model: request.model.clone(),
+        messages,
+        tools: vec![tool.clone()],
+        temperature: Some(0.2),
+        max_tokens: Some(RESPONSE_RESERVE_TOKENS),
+        stop_sequences: Vec::new(),
+    };
+    let aggregated = drive_stream(deps.llm.as_ref(), llm_request, None).await?;
+    let raw_json = extract_raw_json(&aggregated, &tool, &request.model)?;
+    let mut payload: JsonValue = serde_json::from_str(&raw_json).map_err(AppError::Serde)?;
+    normalize_missing_arrays(&mut payload, &tool);
+    validate_tool_output(&tool, &payload)?;
+
+    // Validation guarantees a non-empty `files` array (`minItems: 1`).
+    let files = payload
+        .get("files")
+        .cloned()
+        .ok_or_else(|| AppError::Internal(anyhow::anyhow!("validated repair payload lost files")))?;
+    tracing::info!(
+        model = %request.model,
+        file_count = files.as_array().map_or(0, Vec::len),
+        "runnable-files repair pass recovered the sandbox workspace"
+    );
+    Ok(Some(RunnableFilesRepair {
+        files,
+        input_tokens: aggregated.input_tokens,
+        output_tokens: aggregated.output_tokens,
+    }))
 }
 
 /// Result of draining the LLM stream — extracted so [`generate`] stays
@@ -717,6 +874,26 @@ pub(crate) fn salvage_tool_args(text: &str, tool_name: &str) -> Option<String> {
 
         // Re-mapping for emit_test_plan
         if tool_name == "emit_test_plan" {
+            // The v2 schema nests scope as `{ inScope, outOfScope }` and
+            // rejects unknown keys, so always remap the flat v1-style
+            // `scopeIn`/`scopeOut` keys models still emit — the generic
+            // re-nest normalization cannot match them by key name.
+            if !obj.contains_key("scope")
+                && (obj.contains_key("scopeIn") || obj.contains_key("scopeOut"))
+            {
+                let empty_array = || serde_json::Value::Array(Vec::new());
+                let mut scope_obj = serde_json::Map::new();
+                scope_obj.insert(
+                    "inScope".to_string(),
+                    obj.remove("scopeIn").unwrap_or_else(empty_array),
+                );
+                scope_obj.insert(
+                    "outOfScope".to_string(),
+                    obj.remove("scopeOut").unwrap_or_else(empty_array),
+                );
+                obj.insert("scope".to_string(), serde_json::Value::Object(scope_obj));
+            }
+
             let has_summary = obj.contains_key("summary");
             let has_strategy = obj.contains_key("strategy");
             if !has_summary || !has_strategy {
@@ -792,17 +969,38 @@ pub(crate) fn salvage_tool_args(text: &str, tool_name: &str) -> Option<String> {
 
                 let array_keys = [
                     "objectives",
-                    "scopeIn",
-                    "scopeOut",
+                    "testLevels",
+                    "testTypes",
                     "environments",
                     "risks",
                     "entryCriteria",
                     "exitCriteria",
+                    "suspensionCriteria",
+                    "deliverables",
                 ];
                 for ak in array_keys {
                     if let Some(val) = obj.get(ak) {
                         new_obj.insert(ak.to_string(), val.clone());
                     }
+                }
+
+                // `scope` is a required object, and the missing-array
+                // normalization only backfills arrays — carry it over (it
+                // was re-nested above when only flat keys were present) or
+                // insert an empty shell so v2 validation passes.
+                if let Some(val) = obj.get("scope") {
+                    new_obj.insert("scope".to_string(), val.clone());
+                } else {
+                    let mut scope_obj = serde_json::Map::new();
+                    scope_obj.insert(
+                        "inScope".to_string(),
+                        serde_json::Value::Array(Vec::new()),
+                    );
+                    scope_obj.insert(
+                        "outOfScope".to_string(),
+                        serde_json::Value::Array(Vec::new()),
+                    );
+                    new_obj.insert("scope".to_string(), serde_json::Value::Object(scope_obj));
                 }
                 *obj = new_obj;
             }
@@ -1244,9 +1442,9 @@ fn build_prompt(
             context_md_v1::VERSION,
         ),
         ArtifactType::TestPlan => (
-            test_plan_v1::build_messages(ctx),
-            test_plan_v1::tool(),
-            test_plan_v1::VERSION,
+            test_plan_v2::build_messages(ctx),
+            test_plan_v2::tool(),
+            test_plan_v2::VERSION,
         ),
         ArtifactType::TestCases => (
             test_cases_v2::build_messages(ctx),
@@ -1254,9 +1452,9 @@ fn build_prompt(
             test_cases_v2::VERSION,
         ),
         ArtifactType::DefectReport => (
-            defect_report_v1::build_messages(ctx),
-            defect_report_v1::tool(),
-            defect_report_v1::VERSION,
+            defect_report_v2::build_messages(ctx),
+            defect_report_v2::tool(),
+            defect_report_v2::VERSION,
         ),
         ArtifactType::BugReport => (
             bug_report_v2::build_messages(ctx),
@@ -1283,6 +1481,113 @@ fn normalize_key_name(key: &str) -> String {
         .filter(char::is_ascii_alphanumeric)
         .collect::<String>()
         .to_ascii_lowercase()
+}
+
+/// Second re-nest pass for keys that belong to an array-of-objects item
+/// schema: small models flatten a single `steps[]` entry's `action` /
+/// `expectedResult` onto the test case itself, which
+/// `additionalProperties: false` rejects. Lift every unknown key claimed
+/// by exactly one array-of-objects property into a single new element of
+/// that array — but only when the array is absent or empty, so elements
+/// the model actually emitted are never mutated. Ambiguous keys (claimed
+/// by more than one array property) are left for validation to report.
+fn renest_flattened_array_items(
+    obj: &mut serde_json::Map<String, JsonValue>,
+    properties: &serde_json::Map<String, JsonValue>,
+) {
+    let unknown_keys: Vec<String> = obj
+        .keys()
+        .filter(|k| !properties.contains_key(*k))
+        .cloned()
+        .collect();
+
+    let mut lifted: std::collections::BTreeMap<String, serde_json::Map<String, JsonValue>> =
+        std::collections::BTreeMap::new();
+    for key in unknown_keys {
+        let norm_key = normalize_key_name(&key);
+        let mut owners = properties.iter().filter(|(_, prop_schema)| {
+            prop_schema.get("type").and_then(|t| t.as_str()) == Some("array")
+                && prop_schema
+                    .get("items")
+                    .and_then(|i| i.get("properties"))
+                    .and_then(|p| p.as_object())
+                    .is_some_and(|nested| {
+                        nested.keys().any(|nk| normalize_key_name(nk) == norm_key)
+                    })
+        });
+        let Some((owner_name, _)) = owners.next() else {
+            continue;
+        };
+        if owners.next().is_some() {
+            continue;
+        }
+        let owner_name = owner_name.clone();
+        let target_is_liftable = match obj.get(&owner_name) {
+            None => true,
+            Some(JsonValue::Array(existing)) => existing.is_empty(),
+            Some(_) => false,
+        };
+        if !target_is_liftable {
+            continue;
+        }
+        if let Some(val) = obj.remove(&key) {
+            lifted.entry(owner_name).or_default().insert(key, val);
+        }
+    }
+
+    for (owner_name, item) in lifted {
+        obj.insert(owner_name, JsonValue::Array(vec![JsonValue::Object(item)]));
+    }
+}
+
+/// Coerce structured values in string-typed fields: small models emit
+/// JSON objects for fields like `testData` (`{"email": "...",
+/// "password": "..."}`) where the schema wants a string. Serialize the
+/// value to its compact JSON text so a richer-but-wrong-shaped value
+/// validates instead of hard-failing the generation. Nulls are left for
+/// validation to report.
+fn coerce_structured_strings(
+    obj: &mut serde_json::Map<String, JsonValue>,
+    properties: &serde_json::Map<String, JsonValue>,
+) {
+    for (schema_key, property_schema) in properties {
+        if property_schema.get("type").and_then(|t| t.as_str()) != Some("string") {
+            continue;
+        }
+        if let Some(val) = obj.get_mut(schema_key) {
+            if !matches!(val, JsonValue::String(_) | JsonValue::Null) {
+                let text = val.to_string();
+                *val = JsonValue::String(text);
+            }
+        }
+    }
+}
+
+/// Swap `startLine`/`endLine` when a model emits them inverted. JSON
+/// Schema cannot express the cross-field `endLine >= startLine`
+/// invariant, but the shared Zod mirrors refine on it — an inverted
+/// range would validate here, get stored, and then fail the frontend
+/// parse (dropping the structured view). Only fires when the schema at
+/// this level declares both keys (defect `location`, bug `rootCause`).
+fn swap_inverted_line_range(
+    obj: &mut serde_json::Map<String, JsonValue>,
+    properties: &serde_json::Map<String, JsonValue>,
+) {
+    const START: &str = "startLine";
+    const END: &str = "endLine";
+    if !properties.contains_key(START) || !properties.contains_key(END) {
+        return;
+    }
+    let (Some(start), Some(end)) = (
+        obj.get(START).and_then(JsonValue::as_i64),
+        obj.get(END).and_then(JsonValue::as_i64),
+    ) else {
+        return;
+    };
+    if end < start {
+        obj.insert(START.to_string(), JsonValue::from(end));
+        obj.insert(END.to_string(), JsonValue::from(start));
+    }
 }
 
 fn normalize_value_recursively(data: &mut JsonValue, schema: &JsonValue) {
@@ -1364,6 +1669,20 @@ fn normalize_value_recursively(data: &mut JsonValue, schema: &JsonValue) {
                 }
             }
 
+            // 2b. Re-nest flattened array-item fields: a single
+            // `steps[]` entry's keys emitted at the case level
+            // (`action` / `expectedResult` on a test case) become one
+            // new element of that array.
+            renest_flattened_array_items(obj, properties);
+
+            // 2c. Coerce structured values in string-typed fields
+            // (e.g. `testData` emitted as a JSON object of inputs).
+            coerce_structured_strings(obj, properties);
+
+            // 2d. Swap inverted `startLine`/`endLine` pairs so stored
+            // payloads satisfy the Zod cross-field refinement.
+            swap_inverted_line_range(obj, properties);
+
             // 3. Missing arrays normalization: Insert [] for required array fields if absent
             if let Some(required) = schema.get("required").and_then(|v| v.as_array()) {
                 for req_key_val in required {
@@ -1406,9 +1725,11 @@ fn normalize_value_recursively(data: &mut JsonValue, schema: &JsonValue) {
 /// casing differences, and re-nest flattened nested-object fields.
 ///
 /// Small / non-tool-trained LLMs frequently omit object keys whose value would be an empty array,
-/// emit keys with incorrect casing (`camelCase` instead of `snake_case`), or flatten a nested
+/// emit keys with incorrect casing (`camelCase` instead of `snake_case`), flatten a nested
 /// object's keys onto its parent (e.g. `location.symbol` emitted as a top-level `symbol` on a
-/// defect finding). This function normalizes all three recursively.
+/// defect finding), flatten a single array element's keys onto its parent (e.g. one step's
+/// `action` / `expectedResult` emitted on the test case), or invert `startLine`/`endLine`
+/// pairs. This function normalizes all five recursively.
 pub(crate) fn normalize_missing_arrays(data: &mut JsonValue, tool: &ToolSchema) {
     normalize_value_recursively(data, &tool.parameters_schema);
 }
@@ -1482,6 +1803,10 @@ fn render_markdown(kind: ArtifactType, data: &JsonValue) -> String {
 mod tests {
     use super::*;
     use crate::db::init_pool_at;
+    // v1 prompt modules are kept for replay/back-compat; the
+    // version-agnostic salvage/normalize mechanics tests below still
+    // exercise them alongside the live-routed v2 schemas.
+    use crate::prompts::{defect_report_v1, test_plan_v1};
     use crate::providers::embeddings::EmbeddingProvider as EmbeddingProviderTrait;
     use crate::providers::llm::error::LlmError;
     use crate::providers::llm::types::{
@@ -1529,6 +1854,57 @@ mod tests {
             Box::pin(async_stream::stream! {
                 for chunk in script.iter() {
                     yield Ok::<_, LlmError>(chunk.clone());
+                }
+            })
+        }
+    }
+
+    /// Mock LLM provider that yields a *different* scripted response per
+    /// `stream()` call — call 1 gets the first script, call 2 the second,
+    /// and so on. Exercises the two-pass test-cases flow (generation +
+    /// runnable-files repair). Falls back to an empty stream when the
+    /// scripts run out.
+    #[derive(Clone)]
+    struct SequencedLlm {
+        capabilities: ProviderCapabilities,
+        scripts: Arc<std::sync::Mutex<std::collections::VecDeque<Vec<LlmChunkOut>>>>,
+    }
+
+    impl SequencedLlm {
+        fn new(scripts: Vec<Vec<LlmChunkOut>>) -> Self {
+            Self {
+                capabilities: ProviderCapabilities {
+                    supports_tools: true,
+                    supports_streaming: true,
+                    max_context_tokens: 32_000,
+                    max_output_tokens: 4_000,
+                },
+                scripts: Arc::new(std::sync::Mutex::new(scripts.into_iter().collect())),
+            }
+        }
+    }
+
+    #[async_trait]
+    impl LlmProviderTrait for SequencedLlm {
+        fn name(&self) -> &'static str {
+            "sequenced"
+        }
+        fn capabilities(&self) -> &ProviderCapabilities {
+            &self.capabilities
+        }
+        fn count_tokens(&self, text: &str) -> usize {
+            approximate_token_count(text)
+        }
+        fn stream(&self, _request: GenerateRequest) -> ChunkStream {
+            let script = self
+                .scripts
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .pop_front()
+                .unwrap_or_default();
+            Box::pin(async_stream::stream! {
+                for chunk in script {
+                    yield Ok::<_, LlmError>(chunk);
                 }
             })
         }
@@ -1587,15 +1963,21 @@ mod tests {
         r#"{
             "summary": "Plan to verify the auth subsystem covers happy and failure paths.",
             "objectives": ["Verify login", "Verify logout"],
-            "scopeIn": ["auth module"],
-            "scopeOut": [],
+            "scope": {
+                "inScope": ["auth module"],
+                "outOfScope": ["database migrations"]
+            },
             "strategy": "Use a risk-based mix of API and service-level checks focused on login, logout, and session lifecycle behavior.",
+            "testLevels": ["unit", "integration"],
+            "testTypes": ["functional", "security"],
             "environments": ["local Express server with JSON requests"],
             "risks": [
                 {"description": "Session tokens may remain active after logout.", "mitigation": "Verify revocation and post-logout access denial."}
             ],
             "entryCriteria": ["Code merged"],
-            "exitCriteria": ["All tests pass"]
+            "exitCriteria": ["All tests pass"],
+            "suspensionCriteria": ["Auth environment unavailable"],
+            "deliverables": ["Test case suite", "Run report"]
         }"#
     }
 
@@ -1657,8 +2039,216 @@ mod tests {
             .await
             .expect("fetch");
         assert_eq!(stored.generation_metadata.provider, "scripted");
-        assert_eq!(stored.generation_metadata.prompt_version, "test_plan_v1");
+        assert_eq!(stored.generation_metadata.prompt_version, "test_plan_v2");
         assert_eq!(stored.generation_metadata.input_tokens, 120);
+
+        pool.close().await;
+        let _ = std::fs::remove_file(&path);
+    }
+
+    /// Seed one indexed chunk matching `ScriptedEmbeddings { dim: 8 }`
+    /// so `retrieve_chunks` returns a non-empty context (the repair
+    /// pass requires source chunks to reproduce).
+    async fn seed_chunk(pool: &SqlitePool) {
+        let now = Utc::now().to_rfc3339();
+        sqlx::query(
+            "INSERT INTO project_files (id, project_id, path, language, size_bytes, file_type, sha256, created_at, updated_at) \
+             VALUES ('f1', 'p1', 'src/add.ts', 'typescript', 0, 'source', 'h', ?, ?)",
+        )
+        .bind(&now)
+        .bind(&now)
+        .execute(pool)
+        .await
+        .expect("seed file");
+        chunk_repo::insert_batch(
+            pool,
+            vec![chunk_repo::ChunkInsert {
+                project_id: "p1".into(),
+                file_id: "f1".into(),
+                chunk: CodeChunk {
+                    kind: crate::services::chunking_service::ChunkKind::Function,
+                    name: "add".into(),
+                    start_line: 1,
+                    end_line: 3,
+                    content: "export function add(a, b) { return a + b; }\n".into(),
+                    token_count: 10,
+                    oversize: false,
+                },
+                embedding: vec![1.0; 8],
+                embedding_dim: 8,
+                embedding_provider: "scripted-emb-test-model".into(),
+                embedding_model: "test-model".into(),
+            }],
+        )
+        .await
+        .expect("seed chunk");
+    }
+
+    fn cases_only_test_cases_json() -> &'static str {
+        r#"{
+            "cases": [
+                {
+                    "id": "TC-ADD-POSITIVE",
+                    "title": "add returns the sum of two numbers",
+                    "type": "positive",
+                    "priority": "p1",
+                    "steps": [
+                        {"action": "call add(1, 2)", "expectedResult": "returns 3"}
+                    ]
+                }
+            ]
+        }"#
+    }
+
+    fn repaired_files_json() -> &'static str {
+        r#"{
+            "files": [
+                {"path": "src/add.ts", "contents": "export function add(a, b) { return a + b; }", "isTest": false},
+                {"path": "add.test.ts", "contents": "import { describe, it, expect } from 'vitest';\nimport { add } from './src/add';\ndescribe('add', () => { it('TC-ADD-POSITIVE', () => { expect(add(1, 2)).toBe(3); }); });", "isTest": true}
+            ]
+        }"#
+    }
+
+    fn test_cases_request() -> GenerationRequest {
+        GenerationRequest {
+            project_id: "p1".into(),
+            project_name: "demo".into(),
+            artifact_type: ArtifactType::TestCases,
+            model: "qwen2.5-coder:7b".into(),
+            scope_hint: String::new(),
+            project_summary: "Adder library.".into(),
+            reviewer_feedback: String::new(),
+            parent_id: None,
+        }
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_cases_without_files_get_repaired_by_second_pass() {
+        let (pool, path) = seed_pool().await;
+        seed_chunk(&pool).await;
+
+        let llm = Arc::new(SequencedLlm::new(vec![
+            // Pass 1: the model emits valid cases but skips optional files[].
+            vec![args_chunk(cases_only_test_cases_json()), done_chunk(100, 50)],
+            // Pass 2 (repair): emits the runnable workspace.
+            vec![args_chunk(repaired_files_json()), done_chunk(30, 20)],
+        ]));
+        let embeddings: Arc<dyn EmbeddingProviderTrait> = Arc::new(ScriptedEmbeddings { dim: 8 });
+
+        let outcome = generate(
+            test_cases_request(),
+            &GenerationDeps {
+                pool: &pool,
+                llm,
+                embeddings,
+            },
+            None,
+        )
+        .await
+        .expect("generation succeeds");
+
+        let files = outcome.structured_data["files"]
+            .as_array()
+            .expect("repaired files[] present");
+        assert_eq!(files.len(), 2);
+        assert_eq!(files[0]["path"], "src/add.ts");
+        assert_eq!(files[1]["isTest"], true);
+        // Repair usage is rolled into the artifact totals.
+        assert_eq!(outcome.usage_input_tokens, 130);
+        assert_eq!(outcome.usage_output_tokens, 70);
+
+        let stored = artifact_repo::fetch(&pool, &outcome.artifact_id)
+            .await
+            .expect("fetch");
+        assert!(
+            stored.structured_data["files"].is_array(),
+            "persisted artifact must carry the repaired files[]"
+        );
+
+        pool.close().await;
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn failed_files_repair_still_persists_cases_only_artifact() {
+        let (pool, path) = seed_pool().await;
+        seed_chunk(&pool).await;
+
+        let llm = Arc::new(SequencedLlm::new(vec![
+            vec![args_chunk(cases_only_test_cases_json()), done_chunk(100, 50)],
+            // Pass 2: empty stream — the repair errors and is swallowed.
+            vec![],
+        ]));
+        let embeddings: Arc<dyn EmbeddingProviderTrait> = Arc::new(ScriptedEmbeddings { dim: 8 });
+
+        let outcome = generate(
+            test_cases_request(),
+            &GenerationDeps {
+                pool: &pool,
+                llm,
+                embeddings,
+            },
+            None,
+        )
+        .await
+        .expect("generation must survive a failed repair pass");
+
+        assert!(outcome.structured_data.get("files").is_none());
+        assert_eq!(outcome.usage_input_tokens, 100);
+
+        pool.close().await;
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_cases_with_files_skip_the_repair_pass() {
+        let (pool, path) = seed_pool().await;
+        seed_chunk(&pool).await;
+
+        let payload = r#"{
+            "cases": [
+                {
+                    "id": "TC-ADD-POSITIVE",
+                    "title": "add returns the sum of two numbers",
+                    "type": "positive",
+                    "priority": "p1",
+                    "steps": [
+                        {"action": "call add(1, 2)", "expectedResult": "returns 3"}
+                    ]
+                }
+            ],
+            "files": [
+                {"path": "src/add.ts", "contents": "export function add(a, b) { return a + b; }", "isTest": false},
+                {"path": "add.test.ts", "contents": "import { it } from 'vitest';", "isTest": true}
+            ]
+        }"#;
+        // Poison pill: if the repair pass ran anyway, it would replace
+        // files[] with this single bogus entry.
+        let poison = r#"{"files": [{"path": "poison.ts", "contents": "x", "isTest": true}]}"#;
+        let llm = Arc::new(SequencedLlm::new(vec![
+            vec![args_chunk(payload), done_chunk(100, 50)],
+            vec![args_chunk(poison), done_chunk(1, 1)],
+        ]));
+        let embeddings: Arc<dyn EmbeddingProviderTrait> = Arc::new(ScriptedEmbeddings { dim: 8 });
+
+        let outcome = generate(
+            test_cases_request(),
+            &GenerationDeps {
+                pool: &pool,
+                llm,
+                embeddings,
+            },
+            None,
+        )
+        .await
+        .expect("generation succeeds");
+
+        let files = outcome.structured_data["files"]
+            .as_array()
+            .expect("files[] kept");
+        assert_eq!(files.len(), 2);
+        assert_eq!(files[0]["path"], "src/add.ts");
+        assert_eq!(outcome.usage_input_tokens, 100);
 
         pool.close().await;
         let _ = std::fs::remove_file(&path);
@@ -1882,14 +2472,14 @@ mod tests {
 
     #[test]
     fn validate_tool_output_accepts_valid_json() {
-        let schema = test_plan_v1::tool();
+        let schema = test_plan_v2::tool();
         let v: JsonValue = serde_json::from_str(valid_test_plan_json()).expect("parse");
         validate_tool_output(&schema, &v).expect("valid");
     }
 
     #[test]
     fn validate_tool_output_rejects_missing_required_field() {
-        let schema = test_plan_v1::tool();
+        let schema = test_plan_v2::tool();
         let v = serde_json::json!({ "summary": "ok" });
         let err = validate_tool_output(&schema, &v).expect_err("must reject");
         assert_eq!(err.code(), "INVALID_INPUT");
@@ -2162,8 +2752,16 @@ mod tests {
         </tool_code>"#;
         let plan = salvage_tool_args(plan_text, "emit_test_plan").expect("salvage plan");
         let mut plan_value: serde_json::Value = serde_json::from_str(&plan).unwrap();
-        normalize_missing_arrays(&mut plan_value, &test_plan_v1::tool());
-        validate_tool_output(&test_plan_v1::tool(), &plan_value).expect("valid test plan");
+        normalize_missing_arrays(&mut plan_value, &test_plan_v2::tool());
+        validate_tool_output(&test_plan_v2::tool(), &plan_value).expect("valid test plan");
+        // Flat v1-style scope keys are re-nested into the v2 `scope` object.
+        assert_eq!(
+            plan_value["scope"]["inScope"],
+            serde_json::json!(["src/report.ts"])
+        );
+        assert_eq!(plan_value["scope"]["outOfScope"], serde_json::json!([]));
+        assert!(plan_value.get("scopeIn").is_none());
+        assert!(plan_value.get("scopeOut").is_none());
 
         let defect_text = r#"```tool_code
             console.log(default_api.emit_defect_report({
@@ -2185,6 +2783,37 @@ mod tests {
         normalize_missing_arrays(&mut defect_value, &defect_report_v1::tool());
         validate_tool_output(&defect_report_v1::tool(), &defect_value)
             .expect("valid defect report");
+    }
+
+    #[test]
+    fn salvage_remap_rebuild_produces_v2_test_plan_shape() {
+        // Free-text JSON missing `summary`/`strategy` triggers the rebuild
+        // path. The rebuilt object must satisfy the v2 schema: nested
+        // `scope` instead of flat `scopeIn`/`scopeOut`, with the remaining
+        // required arrays backfilled by normalization.
+        let text = r#"{"title":"Report flows","scopeIn":["src/report.ts"],"scopeOut":[],"objectives":["Verify report creation"]}"#;
+        let got = salvage_tool_args(text, "emit_test_plan").expect("salvage");
+        let mut value: serde_json::Value = serde_json::from_str(&got).unwrap();
+        normalize_missing_arrays(&mut value, &test_plan_v2::tool());
+        validate_tool_output(&test_plan_v2::tool(), &value)
+            .expect("rebuilt plan validates against v2");
+        assert_eq!(
+            value["scope"]["inScope"],
+            serde_json::json!(["src/report.ts"])
+        );
+        assert!(value.get("scopeIn").is_none());
+        assert!(value.get("scopeOut").is_none());
+
+        // Rebuild with no scope information at all still emits the
+        // required `scope` object shell.
+        let bare = r#"{"title":"Bare plan"}"#;
+        let got_bare = salvage_tool_args(bare, "emit_test_plan").expect("salvage bare");
+        let mut bare_value: serde_json::Value = serde_json::from_str(&got_bare).unwrap();
+        normalize_missing_arrays(&mut bare_value, &test_plan_v2::tool());
+        validate_tool_output(&test_plan_v2::tool(), &bare_value)
+            .expect("bare rebuilt plan validates against v2");
+        assert_eq!(bare_value["scope"]["inScope"], serde_json::json!([]));
+        assert_eq!(bare_value["scope"]["outOfScope"], serde_json::json!([]));
     }
 
     #[test]
@@ -2493,6 +3122,142 @@ mod tests {
         );
         assert!(bug.get("symbol").is_none());
         assert!(bug.get("file_hint").is_none());
+    }
+
+    #[test]
+    fn normalize_swaps_inverted_bug_root_cause_line_range() {
+        // JSON Schema cannot express `endLine >= startLine`, but the
+        // shared Zod mirror refines on it — an inverted range stored
+        // here would fail the frontend parse and drop the structured
+        // view. The normalization pass swaps the pair instead.
+        let schema = bug_report_v2::tool();
+        let mut data = serde_json::json!({
+            "bugs": [{
+                "id": "BUG-SAVE-RACE",
+                "title": "Report save races under load",
+                "severity": "major",
+                "priority": "p1",
+                "reproducibility": "always",
+                "stepsToReproduce": ["1. Save twice quickly"],
+                "expectedBehavior": "One report row is written",
+                "actualBehavior": "Two rows are written",
+                "rootCause": {
+                    "symbol": "saveReport",
+                    "startLine": 20,
+                    "endLine": 10,
+                    "explanation": "No write lock around the insert."
+                }
+            }]
+        });
+        normalize_missing_arrays(&mut data, &schema);
+        validate_tool_output(&schema, &data).expect("inverted range heals to valid");
+        let cause = &data["bugs"][0]["rootCause"];
+        assert_eq!(cause["startLine"], 10);
+        assert_eq!(cause["endLine"], 20);
+    }
+
+    #[test]
+    fn normalize_swaps_inverted_defect_location_line_range() {
+        let schema = defect_report_v2::tool();
+        let mut data = serde_json::json!({
+            "findings": [{
+                "id": "DEF-PARSE-CRASH",
+                "severity": "major",
+                "category": "input_validation",
+                "confidence": "high",
+                "location": { "symbol": "parseUser", "startLine": 42, "endLine": 7 },
+                "description": "Unvalidated JSON.parse crashes on bad input.",
+                "impact": "Request handler panics.",
+                "fixSuggestion": "Wrap in try/catch and return 400.",
+                "evidenceSnippet": "return JSON.parse(s);"
+            }],
+            "summary": "One high-confidence defect."
+        });
+        normalize_missing_arrays(&mut data, &schema);
+        validate_tool_output(&schema, &data).expect("inverted range heals to valid");
+        let location = &data["findings"][0]["location"];
+        assert_eq!(location["startLine"], 7);
+        assert_eq!(location["endLine"], 42);
+    }
+
+    #[test]
+    fn normalize_renests_flattened_test_case_step_fields() {
+        // Reproduces the golden-suite failure on qwen2.5-coder:1.5b: the
+        // model emitted a single step's `action` / `expectedResult` at
+        // the case level instead of inside `steps[]`, which
+        // `additionalProperties: false` rejected with "Additional
+        // properties are not allowed ('action', 'expectedResult' were
+        // unexpected)".
+        let schema = test_cases_v2::tool();
+        let mut data = serde_json::json!({
+            "cases": [{
+                "id": "TC-LOGIN-SUCCESS",
+                "title": "Login succeeds with valid credentials",
+                "type": "positive",
+                "priority": "p1",
+                "action": "Call login with valid credentials",
+                "expectedResult": "A session token is returned"
+            }]
+        });
+        normalize_missing_arrays(&mut data, &schema);
+        validate_tool_output(&schema, &data).expect("flattened step heals to valid");
+        let case = &data["cases"][0];
+        assert_eq!(case["steps"][0]["action"], "Call login with valid credentials");
+        assert_eq!(case["steps"][0]["expectedResult"], "A session token is returned");
+        assert!(case.get("action").is_none());
+        assert!(case.get("expectedResult").is_none());
+    }
+
+    #[test]
+    fn normalize_coerces_structured_test_data_to_string() {
+        // Reproduces the golden-suite failure on qwen2.5-coder:1.5b: the
+        // model emitted `testData` as a JSON object of inputs
+        // (`{"email": "...", "password": "..."}`) where the schema wants
+        // a string — "is not of type \"string\"".
+        let schema = test_cases_v2::tool();
+        let mut data = serde_json::json!({
+            "cases": [{
+                "id": "TC-LOGIN-SUCCESS",
+                "title": "Login succeeds with valid credentials",
+                "type": "positive",
+                "priority": "p1",
+                "testData": { "email": "user@example.com", "password": "securePassword" },
+                "steps": [
+                    { "action": "Call login", "expectedResult": "Token returned" }
+                ]
+            }]
+        });
+        normalize_missing_arrays(&mut data, &schema);
+        validate_tool_output(&schema, &data).expect("structured testData heals to valid");
+        let test_data = data["cases"][0]["testData"].as_str().expect("string");
+        assert!(test_data.contains("user@example.com"));
+        // Plain string values are untouched by the coercion pass.
+        assert_eq!(data["cases"][0]["title"], "Login succeeds with valid credentials");
+    }
+
+    #[test]
+    fn normalize_array_item_renest_does_not_clobber_existing_elements() {
+        // A populated steps[] array must never be mutated by the lift —
+        // the stray case-level keys stay put and validation reports them.
+        let schema = test_cases_v2::tool();
+        let mut data = serde_json::json!({
+            "cases": [{
+                "id": "TC-LOGIN-SUCCESS",
+                "title": "Login succeeds with valid credentials",
+                "type": "positive",
+                "priority": "p1",
+                "steps": [
+                    { "action": "Real step", "expectedResult": "Real result" }
+                ],
+                "action": "Stray flattened action"
+            }]
+        });
+        normalize_missing_arrays(&mut data, &schema);
+        let case = &data["cases"][0];
+        assert_eq!(case["steps"].as_array().map(Vec::len), Some(1));
+        assert_eq!(case["steps"][0]["action"], "Real step");
+        assert_eq!(case["action"], "Stray flattened action");
+        assert!(validate_tool_output(&schema, &data).is_err());
     }
 
     #[test]
