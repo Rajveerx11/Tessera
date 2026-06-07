@@ -120,11 +120,14 @@ fn write_doc(doc: &ExportDoc, format: ExportFormat, dest: &Path) -> AppResult<Ve
 /// sibling next to it.
 fn write_delimited(doc: &ExportDoc, format: ExportFormat, dest: &Path) -> AppResult<Vec<PathBuf>> {
     let mut written = Vec::with_capacity(doc.sections.len());
+    let mut used_slugs: Vec<String> = Vec::new();
     for (idx, section) in doc.sections.iter().enumerate() {
         let path = if idx == 0 {
             dest.to_path_buf()
         } else {
-            sibling_path(dest, section.name(), format)
+            let slug = unique_slug(section.name(), &used_slugs);
+            used_slugs.push(slug.clone());
+            sibling_path(dest, &slug, format)
         };
         let file = File::create(&path)?;
         // BOM only for CSV — Excel on Windows misdetects BOM-less
@@ -137,12 +140,28 @@ fn write_delimited(doc: &ExportDoc, format: ExportFormat, dest: &Path) -> AppRes
     Ok(written)
 }
 
-fn sibling_path(dest: &Path, section_name: &str, format: ExportFormat) -> PathBuf {
+fn sibling_path(dest: &Path, slug: &str, format: ExportFormat) -> PathBuf {
     let stem = dest
         .file_stem()
         .map_or_else(|| "export".to_string(), |s| s.to_string_lossy().into_owned());
-    let slug = section_slug(section_name);
     dest.with_file_name(format!("{stem}.{slug}.{}", format.extension()))
+}
+
+/// Slug a section name and dedupe against slugs already used by this
+/// export so two same-named sections cannot silently overwrite each
+/// other's sibling file.
+fn unique_slug(section_name: &str, used: &[String]) -> String {
+    let slug = section_slug(section_name);
+    if !used.iter().any(|u| u == &slug) {
+        return slug;
+    }
+    for n in 2.. {
+        let candidate = format!("{slug}-{n}");
+        if !used.iter().any(|u| u == &candidate) {
+            return candidate;
+        }
+    }
+    unreachable!("numeric suffixes are unbounded");
 }
 
 /// Windows device names that cannot be used as a bare filename
@@ -199,6 +218,18 @@ fn validate_dest_path(raw: &Path, format: ExportFormat) -> AppResult<PathBuf> {
     let file_name = raw
         .file_name()
         .ok_or_else(|| AppError::InvalidInput("destination path has no filename".into()))?;
+    // Windows resolves any component whose base name (before the first
+    // dot) is a device name to that device regardless of directory or
+    // extension — `NUL.xlsx` is the null device, which accepts every
+    // write and discards it, so the export would "succeed" while
+    // producing no file.
+    let name_text = file_name.to_string_lossy();
+    let base = name_text.split('.').next().unwrap_or("");
+    if WINDOWS_RESERVED.contains(&base.to_ascii_lowercase().as_str()) {
+        return Err(AppError::InvalidInput(format!(
+            "destination filename `{name_text}` uses a reserved device name"
+        )));
+    }
     let parent = raw
         .parent()
         .ok_or_else(|| AppError::InvalidInput("destination path has no parent directory".into()))?;
@@ -315,6 +346,31 @@ mod tests {
             dir.canonicalize().expect("canonical")
         );
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn reserved_device_filenames_are_rejected() {
+        let dir = temp_dir();
+        // Any base name before the first dot that matches a device
+        // resolves to that device on Windows, regardless of extension.
+        for name in ["NUL.xlsx", "nul.csv", "CON.tsv", "com1.csv", "Lpt9.xlsx", "aux"] {
+            let err = validate_dest_path(&dir.join(name), ExportFormat::Csv)
+                .expect_err("must reject reserved device name");
+            assert_eq!(err.code(), "INVALID_INPUT", "{name} must be rejected");
+        }
+        // Names that merely contain a device string stay valid.
+        let ok = validate_dest_path(&dir.join("console-report.csv"), ExportFormat::Csv);
+        assert!(ok.is_ok());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn duplicate_section_slugs_get_numeric_suffix() {
+        assert_eq!(unique_slug("Files", &[]), "files");
+        let used = vec!["files".to_string()];
+        assert_eq!(unique_slug("Files", &used), "files-2");
+        let used = vec!["files".to_string(), "files-2".to_string()];
+        assert_eq!(unique_slug("Files!", &used), "files-3");
     }
 
     #[test]
