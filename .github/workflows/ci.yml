@@ -232,6 +232,12 @@ jobs:
     # break fixed in #55) that unit tests structurally cannot see.
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    env:
+      # Optional: when set as repo secrets, the build step authenticates to
+      # Docker Hub instead of pulling anonymously. Anonymous pulls share a
+      # rate-limit quota across all GitHub-hosted runner IPs, and a 429 on
+      # this blocking gate would stall PRs for reasons unrelated to the code.
+      DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
     steps:
       - uses: actions/checkout@v6
 
@@ -255,11 +261,48 @@ jobs:
         with:
           workspaces: apps/desktop/src-tauri
 
+      - name: Restore cached runner image
+        # The base image is digest-pinned, so the Dockerfile hash fully
+        # determines the build output. A cache hit skips Docker Hub entirely
+        # — the registry is only touched when the Dockerfile changes or the
+        # cache was evicted, which keeps the blocking gate clear of
+        # anonymous pull rate limits on routine runs.
+        id: runner-image-cache
+        uses: actions/cache@v4
+        with:
+          path: /tmp/tessera-runner-js.tar
+          key: tessera-runner-js-${{ hashFiles('apps/desktop/src-tauri/docker/Dockerfile.runner-js') }}
+
+      - name: Load cached runner image
+        if: steps.runner-image-cache.outputs.cache-hit == 'true'
+        run: docker load -i /tmp/tessera-runner-js.tar
+
+      - name: Log in to Docker Hub
+        # Only on a cache miss, and only when the optional secrets exist —
+        # forks and secretless runs still work, just anonymously.
+        if: steps.runner-image-cache.outputs.cache-hit != 'true' && env.DOCKERHUB_USERNAME != ''
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
       - name: Build sandbox runner image
+        if: steps.runner-image-cache.outputs.cache-hit != 'true'
+        # Retry with backoff so a transient registry failure (429 from the
+        # shared anonymous quota, network blip) does not hard-fail the gate.
         run: |
-          docker build -t tessera-runner-js \
-            -f apps/desktop/src-tauri/docker/Dockerfile.runner-js \
-            apps/desktop/src-tauri/docker
+          for attempt in 1 2 3; do
+            if docker build -t tessera-runner-js \
+                -f apps/desktop/src-tauri/docker/Dockerfile.runner-js \
+                apps/desktop/src-tauri/docker; then
+              docker save tessera-runner-js -o /tmp/tessera-runner-js.tar
+              exit 0
+            fi
+            echo "::warning::docker build failed (attempt ${attempt}/3); retrying in $((attempt * 30))s"
+            sleep $((attempt * 30))
+          done
+          echo "::error::docker build failed after 3 attempts"
+          exit 1
 
       - name: Run Docker-gated sandbox runner test
         run: |
