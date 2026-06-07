@@ -2,17 +2,42 @@ import type {
   ArtifactDetail,
   ArtifactSummary,
   ArtifactVersionSummary,
+  ExportFormat,
 } from '@testing-ide/shared';
-import { CheckCircle2, Download, GitCompare, Loader2, RefreshCw, X, XCircle } from 'lucide-react';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import {
+  CheckCircle2,
+  ChevronDown,
+  ClipboardCopy,
+  Download,
+  GitCompare,
+  Loader2,
+  RefreshCw,
+  X,
+  XCircle,
+} from 'lucide-react';
+import {
+  type KeyboardEvent,
+  type ReactNode,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 
 import { MarkdownView } from '@/components/markdown/markdown-view';
 import { Button } from '@/components/ui/button';
 import { Dialog } from '@/components/ui/dialog';
 import { toArtifactSummary } from '@/lib/artifact';
 import { useDialogTitleId } from '@/lib/dialog-title';
+import { exportArtifactToFile } from '@/lib/export-artifact';
 import { exportMarkdownDocument } from '@/lib/export-markdown';
-import { artifacts as artifactsIpc, generation, getErrorMessage } from '@/lib/ipc';
+import {
+  artifacts as artifactsIpc,
+  exports as exportsIpc,
+  generation,
+  getErrorMessage,
+} from '@/lib/ipc';
 import { useAiStore } from '@/stores/ai-store';
 import { useWorkspaceStore } from '@/stores/workspace-store';
 
@@ -45,6 +70,9 @@ export function ArtifactDetailDrawer({ summary, onClose }: Props) {
   const [regenerating, setRegenerating] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [exportStatus, setExportStatus] = useState<string | null>(null);
+  const [exportMenuOpen, setExportMenuOpen] = useState(false);
+  const exportMenuRef = useRef<HTMLDivElement | null>(null);
+  const exportTriggerRef = useRef<HTMLButtonElement | null>(null);
 
   // Version chain — fetched lazily when the version picker or diff
   // toggle is used. Empty array means "not loaded yet"; once loaded
@@ -223,28 +251,136 @@ export function ArtifactDetailDrawer({ summary, onClose }: Props) {
     })();
   }, [canRegenerate, project, activeProvider, summary, feedback, upsertArtifact]);
 
-  const handleExportMarkdown = useCallback(() => {
-    if (detail === null) {
-      return;
-    }
-
+  /**
+   * Shared mechanics for every export action: busy flag, status /
+   * error reset, and error mapping. Each handler supplies only the
+   * task; a `null` result means "user cancelled, say nothing".
+   *
+   * A `null`-payload artifact is rejected Rust-side with a
+   * "no structured data" message, so the error text steers the user
+   * to the markdown export that always works.
+   */
+  const runExport = useCallback((task: () => Promise<string | null>) => {
     setExporting(true);
     setError(null);
     setExportStatus(null);
 
     void (async () => {
       try {
-        const exportedPath = await exportMarkdownDocument(detail.title, detail.contentMd);
-        if (exportedPath !== null) {
-          setExportStatus('Exported markdown.');
+        const status = await task();
+        if (status !== null) {
+          setExportStatus(status);
         }
       } catch (err) {
-        setError(getErrorMessage(err));
+        const message = getErrorMessage(err);
+        setError(
+          message.includes('no structured data')
+            ? `${message} — use "Markdown (.md)" instead.`
+            : message,
+        );
       } finally {
         setExporting(false);
       }
     })();
-  }, [detail]);
+  }, []);
+
+  const handleExportMarkdown = useCallback(() => {
+    if (detail === null) {
+      return;
+    }
+    runExport(async () => {
+      const exportedPath = await exportMarkdownDocument(detail.title, detail.contentMd);
+      return exportedPath !== null ? 'Exported markdown.' : null;
+    });
+  }, [detail, runExport]);
+
+  const handleExportFile = useCallback(
+    (format: ExportFormat) => {
+      if (detail === null) {
+        return;
+      }
+      runExport(async () => {
+        const outcome = await exportArtifactToFile(summary.id, detail.title, format);
+        return outcome !== null ? `Exported: ${outcome.files.join(', ')}` : null;
+      });
+    },
+    [detail, summary.id, runExport],
+  );
+
+  const handleCopyTsv = useCallback(() => {
+    runExport(async () => {
+      const tsv = await exportsIpc.getArtifactTsv(summary.id);
+      await navigator.clipboard.writeText(tsv);
+      return 'Copied TSV — paste straight into Google Sheets.';
+    });
+  }, [summary.id, runExport]);
+
+  /** Close the export menu and hand focus back to its trigger. */
+  const closeExportMenu = useCallback(() => {
+    setExportMenuOpen(false);
+    exportTriggerRef.current?.focus();
+  }, []);
+
+  // Move focus into the menu when it opens so arrow-key navigation
+  // works immediately (WAI-ARIA menu pattern).
+  useEffect(() => {
+    if (exportMenuOpen) {
+      exportMenuRef.current?.querySelector<HTMLButtonElement>('[role="menuitem"]')?.focus();
+    }
+  }, [exportMenuOpen]);
+
+  /**
+   * Keyboard contract implied by `role="menu"` / `role="menuitem"`:
+   * ArrowUp/ArrowDown cycle focus, Home/End jump, Escape closes and
+   * restores focus to the trigger.
+   */
+  const handleExportMenuKeyDown = useCallback(
+    (event: KeyboardEvent<HTMLDivElement>) => {
+      const menu = exportMenuRef.current;
+      if (menu === null) {
+        return;
+      }
+      const items = Array.from(menu.querySelectorAll<HTMLButtonElement>('[role="menuitem"]'));
+      if (items.length === 0) {
+        return;
+      }
+      const activeIndex = items.findIndex((item) => item === document.activeElement);
+      const step = (delta: number): void => {
+        const next =
+          activeIndex === -1
+            ? delta > 0
+              ? 0
+              : items.length - 1
+            : (activeIndex + delta + items.length) % items.length;
+        items[next]?.focus();
+      };
+      switch (event.key) {
+        case 'Escape':
+          event.preventDefault();
+          closeExportMenu();
+          break;
+        case 'ArrowDown':
+          event.preventDefault();
+          step(1);
+          break;
+        case 'ArrowUp':
+          event.preventDefault();
+          step(-1);
+          break;
+        case 'Home':
+          event.preventDefault();
+          items[0]?.focus();
+          break;
+        case 'End':
+          event.preventDefault();
+          items[items.length - 1]?.focus();
+          break;
+        default:
+          break;
+      }
+    },
+    [closeExportMenu],
+  );
 
   const isPending =
     detail?.status === 'draft' || detail?.status === 'in_review' || detail === null;
@@ -397,16 +533,74 @@ export function ArtifactDetailDrawer({ summary, onClose }: Props) {
                 {detail?.status === 'approved' ? 'Approved' : 'Rejected'}
               </span>
             )}
-            <Button
-              type="button"
-              size="sm"
-              variant="outline"
-              onClick={handleExportMarkdown}
-              disabled={detail === null || exporting}
-            >
-              {exporting ? <Loader2 className="size-3.5 animate-spin" /> : <Download className="size-3.5" />}
-              Export markdown
-            </Button>
+            <div className="relative">
+              <Button
+                ref={exportTriggerRef}
+                type="button"
+                size="sm"
+                variant="outline"
+                onClick={() => setExportMenuOpen((open) => !open)}
+                disabled={detail === null || exporting}
+                aria-haspopup="menu"
+                aria-expanded={exportMenuOpen}
+              >
+                {exporting ? (
+                  <Loader2 className="size-3.5 animate-spin" />
+                ) : (
+                  <Download className="size-3.5" />
+                )}
+                Export
+                <ChevronDown className="size-3" />
+              </Button>
+              {exportMenuOpen ? (
+                <>
+                  <button
+                    type="button"
+                    className="fixed inset-0 z-10 cursor-default"
+                    onClick={() => setExportMenuOpen(false)}
+                    aria-label="Close export menu"
+                    tabIndex={-1}
+                  />
+                  <div
+                    ref={exportMenuRef}
+                    role="menu"
+                    aria-label="Export format"
+                    onKeyDown={handleExportMenuKeyDown}
+                    className="absolute bottom-full left-0 z-20 mb-1 w-48 rounded-md border border-border bg-card p-1 shadow-lg"
+                  >
+                    <ExportMenuItem
+                      label="Markdown (.md)"
+                      onSelect={() => {
+                        closeExportMenu();
+                        handleExportMarkdown();
+                      }}
+                    />
+                    <ExportMenuItem
+                      label="Excel (.xlsx)"
+                      onSelect={() => {
+                        closeExportMenu();
+                        handleExportFile('xlsx');
+                      }}
+                    />
+                    <ExportMenuItem
+                      label="CSV (.csv)"
+                      onSelect={() => {
+                        closeExportMenu();
+                        handleExportFile('csv');
+                      }}
+                    />
+                    <ExportMenuItem
+                      icon={<ClipboardCopy className="size-3" />}
+                      label="Copy as TSV"
+                      onSelect={() => {
+                        closeExportMenu();
+                        handleCopyTsv();
+                      }}
+                    />
+                  </div>
+                </>
+              ) : null}
+            </div>
             <Button
               type="button"
               size="sm"
@@ -431,6 +625,29 @@ export function ArtifactDetailDrawer({ summary, onClose }: Props) {
           {exportStatus !== null ? <p className="text-muted-foreground text-[10px]">{exportStatus}</p> : null}
         </footer>
     </Dialog>
+  );
+}
+
+/** One row of the export dropdown menu. */
+function ExportMenuItem({
+  label,
+  onSelect,
+  icon,
+}: {
+  label: string;
+  onSelect: () => void;
+  icon?: ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      role="menuitem"
+      onClick={onSelect}
+      className="text-foreground hover:bg-surface-2 flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-xs transition-colors"
+    >
+      {icon ?? <Download className="size-3" />}
+      {label}
+    </button>
   );
 }
 
