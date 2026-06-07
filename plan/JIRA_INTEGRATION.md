@@ -1,407 +1,316 @@
-# Plan — Tessera Boards (Jira-like Project Management)
+# Plan — JIRA Integration (one-way artifact push, Jira Cloud)
 
-> Status: Planned | Owner: TBD | Created: 2026-06-05
-> Adds collaborative boards/issues/teams inside the IDE via a self-hosted API server.
-> Companion ADR (to be written with Phase 1): `docs/adr/000X-boards-collab-server.md`.
+> Status: Draft | Owner: TBD | Created: 2026-06-07
+> Bridges Tessera's generated artifacts (Defect Report, Bug Report, Test Plan, Test Cases) into the team's real QA workflow.
+> Replaces the former "Tessera Boards" plan that lived at this path (recoverable at commit `f7c9fc3`).
 
 ## 1. Goal
 
-Let teams create boards, track issues, and collaborate in real time without
-leaving the IDE. Jira-like: teams → boards → columns → issues, drag-drop,
-live sync between connected team members.
+Tessera generates Defect Reports, Bug Reports, Test Plans and Test Cases as local
+artifacts — today they dead-end inside the app while QA teams' actual workflow
+lives in JIRA. Close that gap with a minimal, **write-mostly** integration:
 
-**Server decision:** a new lightweight **Rust/Axum** HTTP + WebSocket server
-(`apps/server`) running via Docker next to the existing PostgreSQL service.
-One team member hosts it (LAN/VPN/cloud); others connect. Not peer-to-peer —
-P2P sync is strictly harder (NAT traversal, conflict resolution, no source of
-truth) for zero v1 benefit.
+**Tessera finds the bug → one click → real JIRA issue → team workflow takes over.**
 
-## 2. Local-first guarantee — must hold
+Tessera *writes* to JIRA. It never tries to *mirror* it.
 
-Tessera promises *no remote code upload on the default path*. Boards follow the
-sandbox precedent (ADR-0004 pattern):
+## 2. Non-goals (permanent, by design)
 
-- Boards are **opt-in, off by default**. No server configured → feature
-  invisible, zero network calls.
-- Only **board data** (issues, comments, team metadata) goes to the server.
-  Source code, analysis, RAG chunks, and artifacts never leave the machine.
-- Server is **self-hosted by the user's team** — no Tessera-operated cloud.
-- ADR documenting this boundary ships in the same PR as Phase 1.
+- **No two-way sync** — JIRA-side changes do not flow back automatically. Would
+  need polling/webhooks/conflict handling: massive cost, tiny value for a
+  desktop app.
+- **No webhooks** — desktop app has no server to receive them.
+- **No JQL browsing / issue lists in-app** — JIRA's UI exists; we link out.
+- **No attachment upload** — privacy + size; only the text artifact is pushed.
+- **No OAuth** — API token auth only; OAuth dance is bloat for a desktop app.
 
-## 3. Scope
+The only read operation ever added is the v2 on-demand status refresh (single
+GET, user-triggered).
 
-### v1 (this plan, Phases 1–5)
+## 3. Core guarantee — must hold
 
-- Auth: register / login / refresh / logout.
-- Teams: create, invite-code join, member roles (`admin` | `member` | `viewer`).
-- Boards: CRUD, columns, labels.
-- Issues: CRUD, drag-drop reorder, assignee, priority, type, markdown
-  description, comments.
-- Real-time: WebSocket sync per board.
-- Offline: **read-only** local cache; reads work offline, writes require
-  connection.
+Tessera is local-first: nothing leaves the machine without an explicit user
+action.
 
-### v2 (separate plan, after v1 ships)
+- Push requires a **preview-before-push** confirmation — the user sees the exact
+  issue payload (summary, description, priority, labels) before anything is sent.
+- Credentials (API token) are encrypted at rest with the existing AES-256-GCM
+  machinery (`utils/crypto.rs::CryptoKey`); list views return only
+  `hasApiToken: bool`, never plaintext.
+- No background network activity — every JIRA call is user-triggered.
 
-- Sprints + burndown.
-- Activity feed / audit log.
-- Subtasks, WIP limits, story points.
-- Git integration (branch auto-create, commit ↔ issue-key linking).
-- Offline write queue + sync.
-- Avatar upload.
+## 4. Key design decisions
 
-Cutting v2 halves the file count (~20 v1 files vs ~38) and validates the
-server architecture before investing in sprint machinery.
-
-## 4. Open questions (answer before Phase 1)
-
-1. **Team discovery** — invite-only (admin generates code) assumed. OK?
-2. **Hosting story** — docker-compose on one teammate's machine assumed for
-   v1. Documented cloud deploy (Fly/Railway/VPS) is a docs-only follow-up.
-
-## 5. Architecture
-
-```mermaid
-graph TB
-    subgraph Desktop["Desktop App (Tauri)"]
-        FE["React Frontend (boards/ components)"]
-        HTTP["lib/api/boards.ts (fetch + Zod)"]
-        WSC["lib/api/ws-client.ts"]
-        Cache["Local SQLite cache (read-only offline)"]
-    end
-
-    subgraph Server["apps/server (Rust/Axum, Docker)"]
-        REST["REST routes"]
-        WS["WebSocket hub"]
-        SVC["Services"]
-        PG["PostgreSQL"]
-    end
-
-    FE --> HTTP --> REST
-    FE --> WSC --> WS
-    FE --> Cache
-    REST --> SVC --> PG
-    WS --> SVC
-```
-
-Server mirrors the desktop crate's layering: `routes/` (thin, validate,
-delegate) → `services/` (logic, no SQL) → `repositories/` (SQL only) →
-`models/`. Same rulebook applies (§ layering, parameterized SQL, no
-`unwrap()`).
-
-### 5.1 Auth model
-
-- **Server owns JWT signing.** The desktop app never holds the signing
-  secret (it would ship in the binary). Desktop stores access + refresh
-  tokens and sends `Authorization: Bearer <token>`.
-- Token storage on desktop: OS keychain via Tauri (not localStorage).
-- Refresh tokens: rotated on every use, revoked on logout, stored hashed
-  server-side.
-- Shared crypto (Argon2 params, JWT claims shape) extracted from
-  `apps/desktop/src-tauri/src/auth/` into a small workspace crate
-  `crates/auth-core` consumed by both desktop and server — no copy-paste
-  drift.
-- Rate limiting on `/auth/*` (tower middleware, per-IP).
-- The existing placeholder `auth-store.ts` / auth IPC flows are migrated to
-  this real flow in Phase 3.
-
-### 5.2 WebSocket auth + lifecycle
-
-- JWT validated **on upgrade** (from the upgrade request header).
-- `join(board_id)` authorized server-side: user must be a member of the
-  board's team, else close with policy violation. No membership check = any
-  valid token can read any board — not acceptable.
-- Client: heartbeat ping every 30 s, reconnect with exponential backoff,
-  **full board resnapshot on reconnect** (missed events while disconnected
-  cannot be replayed in v1).
-- Events are **deltas** (one issue, one comment), never full-board payloads.
-
-### 5.3 Concurrency + ordering (the hard 5%)
-
-- **Issue ordering:** `position` is `DOUBLE PRECISION` with midpoint
-  insertion (place between neighbours at `(a+b)/2`). Server rebalances a
-  column when gaps exhaust (`abs(a-b) < 1e-9`). Plain integer positions
-  corrupt under concurrent drag-drop.
-- **Field edits:** optimistic concurrency. `issues.version int` — client
-  sends the version it read; mismatch → `409 Conflict`, client refetches and
-  reapplies. No blind last-write-wins.
-- **Issue keys:** allocated atomically in one statement, never
-  read-then-write:
-
-  ```sql
-  UPDATE boards SET issue_counter = issue_counter + 1
-  WHERE id = $1
-  RETURNING issue_counter;
-  ```
-
-## 6. Data model — `apps/server/migrations/0001_boards_init.sql`
-
-PostgreSQL, UUID PKs, FK indexes on every relation.
-
-| Table | Columns (key ones) |
-|---|---|
-| `users` | `id`, `email` UK, `display_name`, `password_hash`, timestamps |
-| `refresh_tokens` | `id`, `user_id` FK, `token_hash`, `expires_at`, `revoked_at` |
-| `teams` | `id`, `name`, `description`, `invite_code` UK, `created_by` FK |
-| `team_members` | `team_id` FK, `user_id` FK, `role` (`admin`\|`member`\|`viewer`), UNIQUE(team_id, user_id) |
-| `boards` | `id`, `team_id` FK, `name`, `key` (e.g. `TEST`), `board_type` (`kanban` only in v1), `issue_counter` |
-| `board_columns` | `id`, `board_id` FK, `name`, `color`, `position` |
-| `labels` | `id`, `board_id` FK, `name`, `color` |
-| `issues` | `id`, `board_id` FK, `column_id` FK, `issue_key` UK, `issue_type` (`epic`\|`story`\|`task`\|`bug`), `title`, `description` (markdown), `priority`, `assignee_id` FK nullable, `reporter_id` FK, `position DOUBLE PRECISION`, `version int`, timestamps |
-| `issue_labels` | `issue_id` FK, `label_id` FK, composite PK |
-| `comments` | `id`, `issue_id` FK, `author_id` FK, `body` (markdown), timestamps |
-
-Deferred to v2 migrations: `sprints`, `activity_logs`, `issues.sprint_id`,
-`issues.parent_id`, `issues.story_points`, `issues.due_date`,
-`issues.git_branch`.
-
-Explicit indexes beyond FKs:
-
-- `issues(board_id, column_id, position)` — column rendering + cursor pagination.
-- `issues(issue_key)` UNIQUE.
-- `comments(issue_id, created_at)`.
-
-## 7. API surface (v1)
-
-```
-POST   /auth/register  /auth/login  /auth/refresh  /auth/logout
-GET    /auth/me
-
-POST   /teams                      GET /teams
-POST   /teams/join                 (invite code)
-GET    /teams/:id/members          PATCH/DELETE member (role mgmt, admin only)
-
-POST   /teams/:id/boards           GET /teams/:id/boards
-GET    /boards/:id                 (board + columns + labels, no issues)
-PATCH  /boards/:id                 POST/PATCH/DELETE columns, labels
-
-GET    /boards/:id/issues?column=&after=&limit=100   (cursor-paginated)
-POST   /boards/:id/issues
-GET    /issues/:id                 PATCH /issues/:id   (requires version)
-POST   /issues/:id/move            (column_id + neighbour ids → server computes position)
-DELETE /issues/:id
-
-GET    /issues/:id/comments?after=&limit=50
-POST   /issues/:id/comments        PATCH/DELETE /comments/:id
-
-GET    /health                     (for docker-compose healthcheck)
-GET    /ws                         (upgrade; auth on upgrade request)
-```
-
-All list endpoints paginated (repo rule — no exceptions). `move` takes
-*neighbour issue ids*, not a raw position — server computes the fractional
-position so clients can't corrupt ordering.
-
-### WS events (v1)
-
-`issue_created` · `issue_updated` · `issue_moved` · `issue_deleted` ·
-`comment_added` · `comment_updated` · `comment_deleted` ·
-`column_changed` · `member_joined` · `member_left`
-
-## 8. Proposed changes
-
-### Phase 1 — Server foundation
-
-#### [NEW] `apps/server/`
-
-```
-apps/server/
-├── Cargo.toml             # workspace member
-├── src/
-│   ├── main.rs            # axum entry; runs sqlx migrations on boot
-│   ├── config.rs          # PORT, DATABASE_URL, JWT_SECRET (fail fast if missing)
-│   ├── error.rs           # ApiError → consistent JSON error body
-│   ├── db/mod.rs          # PgPool setup
-│   ├── middleware/auth.rs # JWT extraction → AuthedUser extension
-│   ├── routes/            # auth, teams, boards, issues, comments, ws, health
-│   ├── services/          # auth_service, team_service, board_service,
-│   │                      # issue_service (ordering + version logic), ws_hub
-│   ├── repositories/      # SQL only (sqlx::query! macros)
-│   └── models/            # serde structs — source of truth for the contract
-└── migrations/0001_boards_init.sql
-```
-
-#### [NEW] `crates/auth-core/`
-
-Argon2 hashing + JWT claims/sign/verify extracted from
-`apps/desktop/src-tauri/src/auth/`. Desktop re-exports; behavior unchanged.
-
-#### [MODIFY] `docker-compose.yml`
-
-```yaml
-  tessera-server:
-    build: ./apps/server
-    container_name: tessera-server
-    restart: unless-stopped
-    depends_on:
-      postgres:
-        condition: service_healthy
-    environment:
-      DATABASE_URL: postgres://${POSTGRES_USER:-testing_ide}:${POSTGRES_PASSWORD:-testing_ide_dev_password}@postgres:5432/${POSTGRES_DB:-testing_ide}
-      JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET in .env}
-      PORT: 3001
-    ports:
-      - "127.0.0.1:${SERVER_PORT:-3001}:3001"
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:3001/health"]
-      interval: 10s
-      timeout: 5s
-      retries: 10
-```
-
-`JWT_SECRET` is **required** (`:?`), no insecure default baked into compose.
-
-#### [MODIFY] `.env.example`
-
-```env
-# Tessera Boards API server
-SERVER_PORT=3001
-TESSERA_SERVER_URL=http://localhost:3001
-JWT_SECRET=            # required for tessera-server; >= 32 random bytes
-```
-
-#### [MODIFY] CI workflow
-
-Add server job: `cargo clippy --manifest-path apps/server/Cargo.toml --locked
---all-targets -- -D warnings` + `cargo test`. Docker build uses
-`SQLX_OFFLINE=true` with checked-in `.sqlx/` metadata (no DB at build time).
-
-### Phase 2 — Shared contract
-
-#### [NEW] `packages/shared/src/schemas/board.schema.ts`
-
-Zod schemas **only** — TS types via `z.infer`, per §12.3.1. No separate
-hand-written `types/board.ts` file. Server serde structs are the source of
-truth; round-trip contract test (fixture JSON from server tests parsed by
-Zod) in the same PR.
-
-#### [MODIFY] `packages/shared/src/index.ts`
-
-Export new schemas + inferred types.
-
-### Phase 3 — Desktop client + store
-
-#### [NEW] `apps/desktop/src/lib/api/boards.ts`
-
-HTTP client (`fetch` in Tauri webview). Every response parsed with Zod before
-it touches state. Lives in `lib/api/` not `lib/ipc/` — it is HTTP, not Tauri
-IPC; same validation discipline.
-
-#### [NEW] `apps/desktop/src/lib/api/ws-client.ts`
-
-`BoardWebSocket`: connect(token, boardId), heartbeat, backoff reconnect,
-resnapshot on reconnect, typed event handlers (Zod-validated events).
-
-#### [NEW] `apps/desktop/src/stores/board-store.ts`
-
-Zustand store: server connection state, active team/board, columns, paginated
-issues, members. Subscribes to WS events, applies deltas. Optimistic UI for
-drag-drop with rollback on 409/error.
-
-#### [MODIFY] auth migration
-
-`auth-store.ts` + auth IPC placeholder flows replaced with real server auth
-(login/register/refresh against `apps/server`, tokens in OS keychain).
-
-### Phase 4 — Frontend UI
-
-#### [NEW] `apps/desktop/src/components/boards/` (v1 set)
-
-```
-board-panel.tsx          board-sidebar.tsx       kanban-board.tsx
-kanban-column.tsx        issue-card.tsx          issue-detail-modal.tsx
-issue-create-modal.tsx   filters-bar.tsx         board-settings.tsx
-team-management.tsx      member-avatar.tsx       priority-badge.tsx
-server-connect-modal.tsx team-invite-modal.tsx
-```
-
-- Kanban columns **virtualized** (`@tanstack/react-virtual`) — 1000-issue
-  perf target is unreachable unvirtualized.
-- Design language: existing theme — `#131313`/`#1c1b1b` surfaces,
-  teal `#6bd8cb`/`#29a195` accents, glassmorphism cards, lucide icons,
-  framer-motion drag/entrance. Priority colors: Critical `#ffb4ab`,
-  High `#f59e0b`, Medium `#6bd8cb`, Low `#94a3b8`, Trivial `#64748b`.
-
-#### [MODIFY] `App.tsx`, `app-shell.tsx`, `toolbar.tsx`
-
-Mode switcher: **Code Mode** (current layout) ↔ **Boards Mode**
-(board sidebar + kanban + detail). Toolbar gets Boards button + connection
-status dot. Boards button hidden until a server URL is configured (opt-in
-invisible-by-default rule, §2).
-
-#### [MODIFY] `settings-sheet.tsx`
-
-"Boards" section: server URL, account (password / display name), team
-shortcuts.
-
-### Phase 5 — Offline cache + hardening
-
-- Local SQLite cache (separate file from analysis DB): last-seen board
-  snapshot for offline **reads**; banner shows "offline — read only".
-- Server: request body size limits, JSON depth limits, audit of all
-  endpoints against role matrix (viewer = read-only, member = CRUD own
-  issues + comments, admin = everything).
-- Load test: seed 1000 issues, assert board load < 500 ms (paginated) and
-  WS delivery < 100 ms LAN.
-
-## 9. File change summary
-
-| Category | New | Modified |
+| Decision | Choice | Why |
 |---|---|---|
-| Server (Ph 1) | ~14 in `apps/server/` + `crates/auth-core/` | `docker-compose.yml`, `.env.example`, CI workflow |
-| Shared (Ph 2) | 1 schema file | `packages/shared/src/index.ts` |
-| Desktop client (Ph 3) | `boards.ts`, `ws-client.ts`, `board-store.ts` | `auth-store.ts` + auth IPC |
-| UI (Ph 4) | ~14 components | `App.tsx`, `app-shell.tsx`, `toolbar.tsx`, `settings-sheet.tsx` |
-| Offline (Ph 5) | cache module | — |
-| **Total v1** | **~22** | **~8** |
+| JIRA API version | REST **v2**, raw markdown string as `description` | v3 requires ADF JSON; an md→ADF converter is the single biggest bloat/bug risk for zero v1 value. v2 accepts plain strings on Jira Cloud, no announced sunset. Optional ~80-line `md_to_jira_wiki` helper deferred to v2 polish. |
+| Auth | Jira Cloud API token (email + token, Basic auth) | Mirrors LLM key storage; simplest thing that works. |
+| Config storage | New `tracker_configs` table — **not** `user_provider_configs` | JIRA needs `email`, `project_key`, `issue_type`, `severity_map_json`; none fit the LLM table, and a `jira` row would leak into the LLM provider list UI. Same encrypt pattern: `api_token_encrypted`/`api_token_nonce` BLOBs, `UNIQUE(user_id, tracker)`, masked views. |
+| Abstraction | `IssueTracker` trait in `providers/trackers/` (sibling of `providers/llm/`), `JiraTracker` first impl, factory dispatch | Mirrors the `LlmProvider` pattern. GitHub Issues / Linear later = one new file, no rewiring. |
+| Mapping | Deterministic pure function — **no LLM** in the path | Same input → same output. Testable, free, instant. |
+| Idempotency | Local `external_links` lookup first, plus `tessera-<artifact-id>` label on the JIRA side | Push twice → "already linked", never a duplicate issue. |
+| Severity → priority | Hardcoded default map, v2 makes it overridable via `severity_map_json` | Covers `DefectSeveritySchema` (4-level) and `BugSeveritySchema` (5-level) with one map. |
+
+Default severity map: `blocker→Highest, critical→Highest, major→High,
+minor→Medium, trivial→Low`. Priority is sent by name
+(`{"priority":{"name":"High"}}`); on a 400, retry once *without* priority —
+some JIRA projects disable the field.
+
+## 5. Architecture (fits existing layering)
+
+Mirror the `LlmProvider` pattern: trait with pluggable impls, one service as the
+sole entry point.
+
+```
+commands/trackers.rs                  Tauri IPC handlers — thin, validate, delegate
+services/tracker_config_service.rs    Config CRUD — encrypt/decrypt just-in-time
+services/jira_push_service.rs         Sole push entry point — map, dedupe, create, link
+providers/trackers/mod.rs             IssueTracker async trait + shared types
+providers/trackers/jira.rs            Jira Cloud impl (reqwest, Basic auth)
+providers/trackers/error.rs           TrackerError → AppError bridge
+providers/trackers/factory.rs         build_tracker(config) -> Arc<dyn IssueTracker>
+repositories/tracker_config_repo.rs   SQL only — config rows
+repositories/external_link_repo.rs    SQL only — artifact ↔ issue links
+db migration 0005_jira_integration.sql
+```
+
+Frontend:
+
+```
+packages/shared/src/schemas/tracker.schema.ts    Zod contract (FE/BE)
+apps/desktop/src/lib/ipc/trackers.ts             Typed IPC wrapper (Zod-validated)
+apps/desktop/src/components/jira-config-panel.tsx        Settings (mirror provider-config-panel)
+apps/desktop/src/components/ai-panel/jira-push-dialog.tsx Preview-before-push modal
+```
+
+**Push flow:** `jira_push_service::push(artifact_id)` → load artifact →
+deterministic mapping → `external_link_repo` idempotency check →
+`IssueTracker::create_issue` → persist link → return issue key/URL → FE badge.
+
+### `IssueTracker` trait (shape, not final code)
+
+```rust
+pub struct NewIssue {
+    pub project_key: String,
+    pub issue_type: String,
+    pub summary: String,               // truncate to 255 (Jira hard limit)
+    pub description: String,           // raw markdown, v2 string field
+    pub priority: Option<String>,      // Jira priority NAME
+    pub labels: Vec<String>,           // includes "tessera-<artifact-id>"
+    pub parent_key: Option<String>,    // v2 epic parent
+}
+
+#[async_trait]
+pub trait IssueTracker: Send + Sync {
+    fn name(&self) -> &'static str;
+    async fn test_connection(&self) -> Result<TrackerUser, TrackerError>;      // GET /myself
+    async fn create_issue(&self, issue: NewIssue) -> Result<CreatedIssue, TrackerError>;
+    async fn bulk_create(&self, issues: Vec<NewIssue>) -> Result<BulkCreateResult, TrackerError>; // v2
+    async fn add_comment(&self, issue_key: &str, body: &str) -> Result<(), TrackerError>;          // v2
+    async fn get_issue_status(&self, issue_key: &str) -> Result<IssueStatus, TrackerError>;        // v2
+}
+```
+
+`TrackerError` variants: `AuthFailed` / `RateLimited` / `NotFound` /
+`InvalidRequest` / `Transport`, bridged into `AppError` via `#[from]`, reusing
+the `map_http_error` status-mapping pattern from
+`providers/llm/openai_compat.rs` (401/403 → AuthFailed, 429 → RateLimited,
+5xx → Transport).
+
+## 6. Data model — migration `0005_jira_integration.sql`
+
+```sql
+CREATE TABLE tracker_configs (
+    id                  TEXT PRIMARY KEY NOT NULL,
+    user_id             TEXT NOT NULL,
+    tracker             TEXT NOT NULL,              -- 'jira'
+    site_url            TEXT NOT NULL,              -- https://acme.atlassian.net
+    email               TEXT NOT NULL,
+    api_token_encrypted BLOB,
+    api_token_nonce     BLOB,
+    project_key         TEXT NOT NULL,
+    issue_type          TEXT NOT NULL DEFAULT 'Task',
+    severity_map_json   TEXT,                       -- v2 override; NULL = built-in default
+    is_active           INTEGER NOT NULL DEFAULT 1,
+    created_at          TEXT NOT NULL,
+    updated_at          TEXT NOT NULL,
+    UNIQUE (user_id, tracker)
+);
+
+CREATE TABLE external_links (
+    id                TEXT PRIMARY KEY NOT NULL,
+    artifact_id       TEXT NOT NULL,
+    tracker           TEXT NOT NULL,                -- 'jira'
+    item_ref          TEXT NOT NULL DEFAULT '',     -- '' = whole artifact; test-case id for v2 children
+    issue_key         TEXT NOT NULL,                -- 'PROJ-123'
+    issue_url         TEXT NOT NULL,
+    issue_type        TEXT,                         -- 'Task' | 'Epic' | ...
+    last_status       TEXT,                         -- v2 on-demand refresh cache
+    status_fetched_at TEXT,
+    created_at        TEXT NOT NULL,
+    updated_at        TEXT NOT NULL,
+    FOREIGN KEY (artifact_id) REFERENCES artifacts(id) ON DELETE CASCADE,
+    UNIQUE (artifact_id, tracker, item_ref)
+);
+
+CREATE INDEX idx_tracker_configs_user_tracker ON tracker_configs(user_id, tracker);
+CREATE INDEX idx_external_links_artifact_id ON external_links(artifact_id);
+CREATE INDEX idx_external_links_tracker_key ON external_links(tracker, issue_key);
+```
+
+Notes:
+
+- `item_ref` discriminator: `''` = whole artifact; a test-case id for v2 epic
+  children. The UNIQUE constraint is `(artifact_id, tracker, item_ref)` — not
+  just artifact+tracker — so a test-plan Epic plus N child Tasks can hang off
+  one artifact. `''` default (not NULL) because SQLite treats NULLs as distinct
+  in UNIQUE constraints.
+- Follows 0001 conventions: TEXT UUID PKs, RFC-3339 timestamps, FK indexes.
+
+## 7. Feature set
+
+### v1 — write-only, minimal
+
+1. **Settings** — `JiraConfigPanel`: site URL, email, API token (encrypted),
+   default project key + issue type, test-connection button (`GET /myself`,
+   shows display name on success).
+2. **"Push to Jira" button** in the artifact detail drawer footer
+   (defect-report / bug-report only), opening a **preview-before-push** dialog:
+   rendered summary, description, priority, labels → confirm → push → issue
+   key + link shown.
+3. **Deterministic mapping** — `title` → summary (truncated to 255),
+   `content_md` → description, max severity across `findings[].severity` →
+   priority, labels `["tessera", "tessera-<artifact-id>"]`.
+4. **Link persistence** — `external_links` row on success; badge `PROJ-123 ↗`
+   on the artifact card, click opens browser; duplicate-push guard shows
+   "already linked" instead of creating a second issue.
+
+### v2
+
+1. **Test Plan → Epic hierarchy** — Test Plan artifact becomes an Epic, each
+   test case a child Task via `POST /rest/api/2/issue/bulk` (one call, no N+1),
+   per-case `item_ref` links.
+2. **Sandbox results → comments** — post run outcome on the linked issue:
+   "Automated run 2026-06-07: PASS — 12/14 passed, coverage 84%". Failing run
+   on a defect issue = reproduction evidence on the ticket.
+3. **On-demand status refresh** — button on the link badge, single GET, caches
+   `last_status` + `status_fetched_at`. Pull-only; explicitly NOT sync.
+4. **Bulk push** — multi-select artifacts, push all, dedupe summary:
+   "3 created, 1 skipped (already linked)". Partial failures surfaced per-item.
+5. **Severity map editor** — `severity_map_json` as a Zod-validated JSON
+   textarea in `JiraConfigPanel`; optional `md_to_jira_wiki` helper (pure
+   function: `## H` → `h2.`, fenced code → `{code}`, `**b**` → `*b*`).
+
+## 8. New / modified files
+
+New — backend (`apps/desktop/src-tauri/`):
+
+- `migrations/0005_jira_integration.sql`
+- `src/providers/trackers/{mod,error,jira,factory}.rs`
+- `src/repositories/{tracker_config_repo,external_link_repo}.rs`
+- `src/services/{tracker_config_service,jira_push_service}.rs` — mirror
+  `provider_config_service.rs` (encrypt/decrypt just-in-time, masked views) and
+  `generation_service.rs` (Deps struct: pool + `Arc<dyn IssueTracker>`)
+- `src/commands/trackers.rs` — thin commands: `save_tracker_config`,
+  `get_tracker_config`, `delete_tracker_config`, `test_tracker_connection`,
+  `preview_jira_push`, `push_artifact_to_jira`, `list_external_links`;
+  v2 adds `push_test_plan_to_jira`, `bulk_push_artifacts`, `post_run_comment`,
+  `refresh_issue_status`
+
+New — frontend (`apps/desktop/src/`):
+
+- `lib/ipc/trackers.ts` (via `invokeAndParse`)
+- `components/jira-config-panel.tsx` (mirror `provider-config-panel.tsx`)
+- `components/ai-panel/jira-push-dialog.tsx`
+- tracker slice in the store
+
+New — shared (`packages/shared/src/schemas/`):
+
+- `tracker.schema.ts` — `TrackerConfigViewSchema` (masked `hasApiToken`,
+  never the token), `ExternalLinkSchema`, `PushPreviewSchema`. Rust serde is
+  the source of truth; Zod mirrors (rules.md §12.3.1).
+
+Modified:
+
+- `src-tauri/src/lib.rs` — invoke_handler registration (CryptoKey already managed)
+- `src-tauri/src/{providers,repositories,services,commands}/mod.rs`,
+  `src-tauri/src/error.rs` — module wiring + `#[from] TrackerError` arm
+- `src/components/ai-panel/artifact-detail-drawer.tsx` — footer button after
+  "Export markdown", gated to defect/bug types + active config
+- `src/components/ai-panel/ai-panel.tsx` — link badge in `ArtifactRow` after
+  the status badge
+- settings page hosting the provider panel — add Jira section
+- `packages/shared/src/index.ts` + `contract-schemas.test.ts` — exports +
+  round-trip tests
+
+## 9. Phases (3 large)
+
+### Phase 1 — Backend v1
+
+Migration 0005; `TrackerError`; `IssueTracker` trait + `JiraTracker`; factory;
+both repos; both services (push pipeline: load artifact → map → idempotency
+check → create → persist link); commands + lib.rs registration; error bridge.
+
+Tests: `ScriptedTracker` mock implementing `IssueTracker` with queued responses
+(mirror the `ScriptedLlm` pattern in `generation_service.rs` tests) — mapping
+determinism, severity→priority for all enum values, summary truncation,
+idempotent skip. Repo tests on temp SQLite (pattern from
+`provider_config_repo.rs` tests) — upsert, unique constraint, cascade delete.
+Crypto round-trip on the token. HTTP status → `TrackerError` mapping tests
+(no network).
+
+**Exit:** `cargo test` + clippy pedantic green; commands callable.
+
+### Phase 2 — Frontend v1
+
+`tracker.schema.ts` + index exports + contract round-trip tests;
+`lib/ipc/trackers.ts`; `JiraConfigPanel` (form, save, test-connection, masked
+token); `jira-push-dialog.tsx` (preview → confirm → push → issue link,
+"already linked" state); drawer button; ArtifactRow badge (opens browser via
+Tauri opener); tracker store slice.
+
+**Exit:** full manual flow works against a real Jira Cloud sandbox; FE tests pass.
+
+### Phase 3 — v2
+
+Epic/child bulk push (`parent` field, per-case `item_ref` links); sandbox-run
+comments (formats counts from `test_runs`); on-demand status refresh + badge
+tooltip; multi-select bulk push with dedupe summary; severity-map editor;
+optional `md_to_jira_wiki`.
+
+**Exit:** all v2 flows green; bulk partial failures surfaced per-item.
 
 ## 10. Verification
 
 ### Automated
 
 ```bash
-# Server
-cargo test --manifest-path apps/server/Cargo.toml
-cargo clippy --manifest-path apps/server/Cargo.toml --locked --all-targets -- -D warnings
-
-# Shared contract round-trip
-pnpm --filter @testing-ide/shared run test
-
-# Desktop
-pnpm --filter @testing-ide/desktop run test:frontend
-pnpm typecheck && pnpm lint
+pnpm guard:pre-push   # typecheck → lint → test → clippy
 ```
 
-Server unit tests must cover: fractional reorder (incl. rebalance trigger),
-issue-key allocation under concurrent inserts, version-conflict 409, WS room
-authorization (non-member rejected), invite-code join, role matrix.
+Rust unit tests must cover: mapping determinism, severity→priority for every
+enum value (both 4-level defect and 5-level bug scales), 255-char summary
+truncation, idempotent skip, bulk partial-failure aggregation, crypto
+round-trip, HTTP status → `TrackerError` mapping.
 
 ### Manual
 
-1. `docker compose up` → postgres + server healthy, migrations applied.
-2. Register → login → token refresh → logout revokes refresh token.
-3. Create team → invite code → second instance joins.
-4. Board CRUD → issues → drag-drop reorder survives two clients moving
-   cards concurrently (no duplicate/corrupt positions).
-5. Two IDE instances on one board: card move appears on both < 100 ms LAN.
-6. Edit same issue on both → second save gets conflict prompt, not silent
-   overwrite.
-7. Kill server → boards still readable from cache, writes blocked with
-   banner → restart → resync.
-8. Theme consistency with existing panels.
-
-### Performance criteria
-
-- Board load < 500 ms at 1000 issues (paginated + virtualized).
-- WS delivery < 100 ms LAN.
-- Drag-drop re-render < 16 ms.
+1. Fresh-DB launch applies 0005 cleanly; upgrade from an existing 0004 DB also
+   verified.
+2. Against a free Jira Cloud site: save config → test connection (displays
+   `/myself` displayName) → push a defect report → verify summary /
+   description / priority / label in JIRA → push again → "already linked" →
+   badge shows key and opens browser.
+3. v2: plan→epic hierarchy visible in the JIRA backlog; run comment renders
+   counts; status refresh reflects a JIRA-side transition; bulk push of 3
+   artifacts with 1 pre-linked reports "2 created, 1 skipped".
 
 ## 11. Risks
 
 | Risk | Mitigation |
 |---|---|
-| Server is a second deployable — ops burden on teams | docker-compose one-liner; `/health`; docs for LAN/VPN/cloud hosting |
-| Schema drift desktop ↔ server | single Zod contract in `packages/shared` + round-trip tests; serde source of truth |
-| Concurrent edits corrupt data | fractional positions + server-computed moves + `version` optimistic locking |
-| Auth weaknesses | server-only signing secret, rotated refresh tokens, rate-limited auth routes, keychain storage |
-| Scope creep | fenced v2 plan: sprints/activity/git-linking |
+| JIRA project disables the priority field → 400 on create | Retry once without priority; surface warning, not failure |
+| REST v2 deprecation on Jira Cloud | Trait isolates the HTTP surface; swap to v3+ADF inside `jira.rs` only |
+| Markdown renders poorly in JIRA description | Acceptable v1 (mostly readable); `md_to_jira_wiki` helper in v2 polish |
+| Duplicate issues from concurrent pushes | DB UNIQUE constraint + remote `tessera-<artifact-id>` label |
+| Scope creep toward sync | Non-goals fenced in §2; only read ever added is on-demand status GET |
