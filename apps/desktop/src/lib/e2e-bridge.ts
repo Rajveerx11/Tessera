@@ -38,10 +38,6 @@ export function getTestingIdeE2eConfig(): TestingIdeE2eConfig | null {
   return testingIdeWindow.__TESTING_IDE_E2E__;
 }
 
-export function isTestingIdeE2eEnabled(): boolean {
-  return getTestingIdeE2eConfig() !== null;
-}
-
 export function getTestingIdeReadDir() {
   return getTestingIdeWindow()?.__testingIdeReadDir__ ?? null;
 }

@@ -71,6 +71,37 @@ describe('exportArtifactToFile', () => {
     });
   });
 
+  it('exports markdown through the backend renderer', async () => {
+    saveMock.mockResolvedValue('C:/tmp/plan.md');
+    invokeMock.mockResolvedValue({ files: ['C:/tmp/plan.md'] });
+
+    const outcome = await exportArtifactToFile('a1', 'Plan', 'md');
+    expect(outcome).toEqual({ files: ['C:/tmp/plan.md'] });
+    expect(saveMock).toHaveBeenCalledWith({
+      title: 'Export markdown',
+      defaultPath: 'plan.md',
+      filters: [{ name: 'Markdown', extensions: ['md'] }],
+    });
+    expect(invokeMock).toHaveBeenCalledWith('export_artifact', {
+      artifactId: 'a1',
+      format: 'md',
+      destPath: 'C:/tmp/plan.md',
+    });
+  });
+
+  it('exports structured data as JSON', async () => {
+    saveMock.mockResolvedValue('C:/tmp/plan.json');
+    invokeMock.mockResolvedValue({ files: ['C:/tmp/plan.json'] });
+
+    const outcome = await exportArtifactToFile('a1', 'Plan', 'json');
+    expect(outcome).toEqual({ files: ['C:/tmp/plan.json'] });
+    expect(invokeMock).toHaveBeenCalledWith('export_artifact', {
+      artifactId: 'a1',
+      format: 'json',
+      destPath: 'C:/tmp/plan.json',
+    });
+  });
+
   it('rejects when the backend reports a schema-invalid outcome', async () => {
     saveMock.mockResolvedValue('C:/tmp/plan.csv');
     invokeMock.mockResolvedValue({ files: [] });

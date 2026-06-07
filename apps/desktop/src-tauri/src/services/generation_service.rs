@@ -1777,26 +1777,16 @@ fn derive_title(request: &GenerationRequest, data: &JsonValue) -> String {
 }
 
 fn render_markdown(kind: ArtifactType, data: &JsonValue) -> String {
-    // Minimal Markdown renderer — the FE will eventually own a richer
-    // template, but Phase 5 needs *some* human-readable representation
-    // so the review queue + export-to-Markdown command both work.
-    use std::fmt::Write as _;
-
-    let mut out = String::new();
-    let label = match kind {
-        ArtifactType::ContextMd => "Project Context",
-        ArtifactType::TestPlan => "Test Plan",
-        ArtifactType::TestCases => "Test Cases",
-        ArtifactType::DefectReport => "Defect Report",
-        ArtifactType::BugReport => "Bug Report",
-    };
-    writeln!(out, "# {label}\n").expect("write");
-
-    // Pretty-print the JSON beneath. Downstream consumers parse the
-    // `structured_data` directly; this is just the human-friendly view.
-    let pretty = serde_json::to_string_pretty(data).unwrap_or_else(|_| data.to_string());
-    writeln!(out, "```json\n{pretty}\n```").expect("write");
-    out
+    // Real Markdown render shared with the export service — the
+    // stored `content_md` must be human-readable, not a JSON dump.
+    // Falls back to a fenced JSON block only when the payload cannot
+    // deserialize (every payload field is defaulted, so that is
+    // effectively a non-object payload, which JSON-Schema validation
+    // upstream already rejects).
+    crate::services::export::render_artifact_markdown(kind, data).unwrap_or_else(|_| {
+        let pretty = serde_json::to_string_pretty(data).unwrap_or_else(|_| data.to_string());
+        format!("```json\n{pretty}\n```\n")
+    })
 }
 
 #[cfg(test)]

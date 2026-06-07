@@ -20,6 +20,7 @@ import {
   getTestingIdeReadDir,
   getTestingIdeReadTextFile,
   getTestingIdeStat,
+  getTestingIdeWriteTextFile,
 } from './e2e-bridge';
 
 const MOCK_USER_ID = '00000000-0000-4000-8000-000000000001';
@@ -320,6 +321,15 @@ async function readTextFile(path: string): Promise<number[]> {
   return Array.from(new TextEncoder().encode(text));
 }
 
+async function writeExportFile(path: string, content: string): Promise<void> {
+  const writeFile = getTestingIdeWriteTextFile();
+  if (writeFile === null) {
+    throw new Error('E2E writeTextFile bridge is not installed');
+  }
+
+  await writeFile(path, content);
+}
+
 async function statFile(path: string) {
   const stat = getTestingIdeStat();
   if (stat === null) {
@@ -518,6 +528,26 @@ export function installE2eTauriMocks(): void {
       case 'cancel_test_sandbox':
         // No real container in the mock; nothing live to cancel.
         return false;
+
+      case 'export_artifact': {
+        const args = payload as { artifactId?: string; format?: string; destPath?: string };
+        if (artifact === null || args.artifactId !== artifact.detail.id) {
+          throw new Error('artifact not found');
+        }
+        if (typeof args.destPath !== 'string' || args.destPath.length === 0) {
+          throw new Error('missing destPath');
+        }
+
+        // The real renderers live in the Rust export service; the mock
+        // approximates them with the fixture's stored representations
+        // so the export flow is exercised end to end.
+        const content =
+          args.format === 'json'
+            ? `${JSON.stringify(artifact.detail.structuredData, null, 2)}\n`
+            : artifact.detail.contentMd;
+        await writeExportFile(args.destPath, content);
+        return { files: [args.destPath] };
+      }
 
       case 'list_artifacts':
         return artifact === null ? [] : [artifact.summary];

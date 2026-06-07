@@ -6,6 +6,8 @@ import { z } from 'zod';
  * (lowercase serde wire values).
  */
 export const ExportFormatSchema = z.union([
+  z.literal('md'),
+  z.literal('json'),
   z.literal('xlsx'),
   z.literal('csv'),
   z.literal('tsv'),

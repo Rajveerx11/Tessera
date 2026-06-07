@@ -4,6 +4,8 @@ import { ExportFormatSchema, ExportOutcomeSchema } from './export.schema';
 
 describe('ExportFormatSchema', () => {
   it('accepts every Rust-side wire value', () => {
+    expect(ExportFormatSchema.parse('md')).toBe('md');
+    expect(ExportFormatSchema.parse('json')).toBe('json');
     expect(ExportFormatSchema.parse('xlsx')).toBe('xlsx');
     expect(ExportFormatSchema.parse('csv')).toBe('csv');
     expect(ExportFormatSchema.parse('tsv')).toBe('tsv');

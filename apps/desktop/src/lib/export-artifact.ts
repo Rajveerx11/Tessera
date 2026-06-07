@@ -6,9 +6,7 @@ import { exportArtifact as exportArtifactIpc } from './ipc/exports';
 
 /**
  * Slug an artifact title into a stable filename with the given
- * extension. Generalizes the markdown-only helper that previously
- * lived in `export-markdown.ts` so every export format shares one
- * slug rule.
+ * extension. Every export format shares this one slug rule.
  */
 export function buildExportFilename(title: string, extension: string): string {
   const trimmed = title.trim();
@@ -23,16 +21,19 @@ export function buildExportFilename(title: string, extension: string): string {
 }
 
 const FORMAT_DIALOG: Record<ExportFormat, { title: string; filterName: string }> = {
+  md: { title: 'Export markdown', filterName: 'Markdown' },
+  json: { title: 'Export JSON', filterName: 'JSON' },
   xlsx: { title: 'Export Excel workbook', filterName: 'Excel Workbook' },
   csv: { title: 'Export CSV', filterName: 'CSV' },
   tsv: { title: 'Export TSV', filterName: 'TSV' },
 };
 
 /**
- * Full export flow for structured artifact data: ask the user for a
- * destination via the save dialog, then let the Rust export service
- * map + write the file(s). Returns `null` when the user cancels the
- * dialog, otherwise the list of files written.
+ * Full export flow for an artifact: ask the user for a destination
+ * via the save dialog, then let the Rust export service render +
+ * write the file(s) — markdown/JSON straight off `structured_data`,
+ * xlsx/csv/tsv through the tabular IR. Returns `null` when the user
+ * cancels the dialog, otherwise the list of files written.
  */
 export async function exportArtifactToFile(
   artifactId: string,
