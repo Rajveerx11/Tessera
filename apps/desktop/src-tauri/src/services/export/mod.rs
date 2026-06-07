@@ -1,20 +1,25 @@
-//! Artifact export service — xlsx / csv / tsv (see
+//! Artifact export service — markdown / json / xlsx / csv / tsv (see
 //! `plan/ARTIFACT_EXPORT.md`).
 //!
 //! Mirrors the generation-service pattern: this module is the sole
 //! entry point for exports; commands in `commands/exports.rs` stay
-//! thin. Flow: fetch artifact → [`build_export_doc`] (pure mapper →
-//! IR) → format writer → write file(s) → return every written path
-//! so the frontend toast can list them.
+//! thin. Spreadsheet flow: fetch artifact → [`build_export_doc`]
+//! (pure mapper → IR) → format writer → write file(s) → return every
+//! written path so the frontend toast can list them. Markdown / JSON
+//! render straight off `structured_data` (no IR, no cell clamping) so
+//! nothing is ever cut off.
 //!
 //! Multi-section documents exported to CSV/TSV produce sibling files
 //! (`{stem}.{section-slug}.{ext}`) because those formats cannot hold
 //! more than one table per file; xlsx holds one worksheet per
-//! section in a single workbook.
+//! section in a single workbook. Markdown and JSON always write a
+//! single file.
 
 pub mod csv_writer;
 pub mod ir;
 pub mod mappers;
+pub mod markdown_writer;
+pub mod payload;
 pub mod xlsx_writer;
 
 use std::fs::File;
@@ -30,6 +35,7 @@ use crate::repositories::artifact_repo;
 pub use csv_writer::render_tsv;
 pub use ir::ExportDoc;
 pub use mappers::build_export_doc;
+pub use markdown_writer::render_artifact_markdown;
 
 /// Output formats the export command accepts. The lowercase serde
 /// names are the IPC wire values (`ExportFormatSchema` in
@@ -37,6 +43,8 @@ pub use mappers::build_export_doc;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum ExportFormat {
+    Md,
+    Json,
     Xlsx,
     Csv,
     Tsv,
@@ -47,6 +55,8 @@ impl ExportFormat {
     #[must_use]
     pub fn extension(self) -> &'static str {
         match self {
+            Self::Md => "md",
+            Self::Json => "json",
             Self::Xlsx => "xlsx",
             Self::Csv => "csv",
             Self::Tsv => "tsv",
@@ -56,20 +66,22 @@ impl ExportFormat {
     fn delimiter(self) -> u8 {
         match self {
             Self::Tsv => b'\t',
-            // xlsx never reaches the delimiter path.
-            Self::Xlsx | Self::Csv => b',',
+            // Only the CSV/TSV path reads the delimiter.
+            Self::Md | Self::Json | Self::Xlsx | Self::Csv => b',',
         }
     }
 }
 
 /// Export an artifact to `dest_path` in the requested format.
-/// Returns every file written (CSV/TSV may emit section siblings).
+/// Returns every file written (CSV/TSV may emit section siblings;
+/// markdown/JSON always write exactly one file).
 ///
 /// # Errors
 ///
 /// - [`AppError::NotFound`] when the artifact does not exist.
 /// - [`AppError::InvalidInput`] when the artifact has no structured
-///   data or `dest_path` fails validation.
+///   data (markdown falls back to the stored `content_md` instead) or
+///   `dest_path` fails validation.
 /// - [`AppError::Io`] / [`AppError::Internal`] when writing fails.
 pub async fn export_artifact(
     pool: &SqlitePool,
@@ -77,13 +89,66 @@ pub async fn export_artifact(
     format: ExportFormat,
     dest_path: &Path,
 ) -> AppResult<Vec<PathBuf>> {
-    let doc = load_export_doc(pool, artifact_id).await?;
     let dest = validate_dest_path(dest_path, format)?;
 
-    // File IO is blocking; keep it off the async executor.
-    tokio::task::spawn_blocking(move || write_doc(&doc, format, &dest))
-        .await
+    let task = match format {
+        ExportFormat::Md | ExportFormat::Json => {
+            let text = render_text_export(pool, artifact_id, format).await?;
+            // File IO is blocking; keep it off the async executor.
+            tokio::task::spawn_blocking(move || -> AppResult<Vec<PathBuf>> {
+                std::fs::write(&dest, text)?;
+                Ok(vec![dest])
+            })
+        }
+        ExportFormat::Xlsx | ExportFormat::Csv | ExportFormat::Tsv => {
+            let doc = load_export_doc(pool, artifact_id).await?;
+            tokio::task::spawn_blocking(move || write_doc(&doc, format, &dest))
+        }
+    };
+    task.await
         .map_err(|e| AppError::Internal(anyhow::anyhow!("export task panicked: {e}")))?
+}
+
+/// Render the single-file text formats (markdown / JSON).
+///
+/// Markdown prefers a fresh render from `structured_data` — this is
+/// what fixes artifacts generated before the markdown renderer
+/// existed, whose stored `content_md` is a JSON dump — and falls back
+/// to the stored `content_md` when there is no structured payload.
+/// JSON pretty-prints `structured_data` and rejects artifacts without
+/// one.
+async fn render_text_export(
+    pool: &SqlitePool,
+    artifact_id: &str,
+    format: ExportFormat,
+) -> AppResult<String> {
+    let artifact = artifact_repo::fetch(pool, artifact_id).await?;
+    let data = &artifact.structured_data;
+    let has_structured_data =
+        !data.is_null() && !data.as_object().is_some_and(serde_json::Map::is_empty);
+
+    match format {
+        ExportFormat::Md => {
+            if has_structured_data {
+                render_artifact_markdown(artifact.artifact_type, data)
+            } else {
+                Ok(artifact.content_md)
+            }
+        }
+        ExportFormat::Json => {
+            if !has_structured_data {
+                return Err(AppError::InvalidInput(
+                    "artifact has no structured data to export".into(),
+                ));
+            }
+            let mut text = serde_json::to_string_pretty(data)?;
+            text.push('\n');
+            Ok(text)
+        }
+        ExportFormat::Xlsx | ExportFormat::Csv | ExportFormat::Tsv => Err(AppError::Internal(
+            anyhow::anyhow!("render_text_export called with a spreadsheet format"),
+        )),
+    }
 }
 
 /// Render an artifact as clipboard-ready TSV (no files written).
@@ -112,6 +177,11 @@ fn write_doc(doc: &ExportDoc, format: ExportFormat, dest: &Path) -> AppResult<Ve
             Ok(vec![dest.to_path_buf()])
         }
         ExportFormat::Csv | ExportFormat::Tsv => write_delimited(doc, format, dest),
+        // Text formats are written by `export_artifact` directly and
+        // never reach the IR writer.
+        ExportFormat::Md | ExportFormat::Json => Err(AppError::Internal(anyhow::anyhow!(
+            "write_doc called with a text format"
+        ))),
     }
 }
 
@@ -272,6 +342,8 @@ mod tests {
     #[test]
     fn export_format_deserializes_lowercase_wire_values() {
         let cases = [
+            ("\"md\"", ExportFormat::Md),
+            ("\"json\"", ExportFormat::Json),
             ("\"xlsx\"", ExportFormat::Xlsx),
             ("\"csv\"", ExportFormat::Csv),
             ("\"tsv\"", ExportFormat::Tsv),
@@ -540,6 +612,86 @@ mod tests {
             .await
             .expect_err("must reject");
         assert_eq!(err.code(), "INVALID_INPUT");
+        pool.close().await;
+        let _ = std::fs::remove_dir_all(&dir);
+        let _ = std::fs::remove_file(&db_path);
+    }
+
+    #[tokio::test]
+    async fn export_markdown_renders_structured_data_not_json() {
+        let (pool, db_path, id) =
+            seeded_pool_with_artifact(ArtifactType::TestCases, test_cases_payload()).await;
+        let dir = temp_dir();
+
+        let written = export_artifact(&pool, &id, ExportFormat::Md, &dir.join("cases.md"))
+            .await
+            .expect("export");
+        assert_eq!(written.len(), 1);
+        let text = std::fs::read_to_string(&written[0]).expect("read back");
+        assert!(text.starts_with("# Test Cases"));
+        assert!(text.contains("## TC-1 — First case"));
+        assert!(text.contains("1. do it — *Expected:* works"));
+        // The bug this fixes: markdown export must not be a JSON dump.
+        assert!(!text.contains("```json"));
+        assert!(!text.contains("\"cases\""));
+
+        pool.close().await;
+        let _ = std::fs::remove_dir_all(&dir);
+        let _ = std::fs::remove_file(&db_path);
+    }
+
+    #[tokio::test]
+    async fn export_markdown_falls_back_to_content_md_without_structured_data() {
+        let (pool, db_path, id) =
+            seeded_pool_with_artifact(ArtifactType::TestPlan, serde_json::Value::Null).await;
+        let dir = temp_dir();
+
+        let written = export_artifact(&pool, &id, ExportFormat::Md, &dir.join("plan.md"))
+            .await
+            .expect("export");
+        let text = std::fs::read_to_string(&written[0]).expect("read back");
+        // Seeded artifacts store "# md" as content_md.
+        assert_eq!(text, "# md");
+
+        pool.close().await;
+        let _ = std::fs::remove_dir_all(&dir);
+        let _ = std::fs::remove_file(&db_path);
+    }
+
+    #[tokio::test]
+    async fn export_json_pretty_prints_structured_data() {
+        let (pool, db_path, id) =
+            seeded_pool_with_artifact(ArtifactType::TestCases, test_cases_payload()).await;
+        let dir = temp_dir();
+
+        let written = export_artifact(&pool, &id, ExportFormat::Json, &dir.join("cases.json"))
+            .await
+            .expect("export");
+        assert_eq!(written.len(), 1);
+        assert!(written[0].to_string_lossy().ends_with("cases.json"));
+        let text = std::fs::read_to_string(&written[0]).expect("read back");
+        // Pretty-printed (multi-line) and round-trips to the payload.
+        assert!(text.lines().count() > 1);
+        assert!(text.ends_with('\n'));
+        let parsed: serde_json::Value = serde_json::from_str(&text).expect("valid json");
+        assert_eq!(parsed, test_cases_payload());
+
+        pool.close().await;
+        let _ = std::fs::remove_dir_all(&dir);
+        let _ = std::fs::remove_file(&db_path);
+    }
+
+    #[tokio::test]
+    async fn export_json_without_structured_data_is_rejected() {
+        let (pool, db_path, id) =
+            seeded_pool_with_artifact(ArtifactType::TestPlan, serde_json::Value::Null).await;
+        let dir = temp_dir();
+
+        let err = export_artifact(&pool, &id, ExportFormat::Json, &dir.join("plan.json"))
+            .await
+            .expect_err("must reject");
+        assert_eq!(err.code(), "INVALID_INPUT");
+
         pool.close().await;
         let _ = std::fs::remove_dir_all(&dir);
         let _ = std::fs::remove_file(&db_path);
