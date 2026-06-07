@@ -37,10 +37,11 @@ use super::{
     TestResult, TestRunner, TestStatus,
 };
 
-/// Pre-built runner image (plan §7). Built locally on first enable or
-/// pulled from a registry — see the Phase 0 ADR. Ships `vitest` + `c8`
-/// pre-installed so a run needs no `npm install` (fast, deterministic,
-/// offline).
+/// Pre-built runner image (plan §7). Built locally from
+/// `docker/Dockerfile.runner-js`, never pulled from a registry (local-first
+/// guarantee — see ADR-0004 and `ensure_runner_image`). Ships `vitest` +
+/// the istanbul coverage provider pre-installed so a run needs no
+/// `npm install` (fast, deterministic, offline).
 pub const RUNNER_IMAGE: &str = "tessera-runner-js";
 
 /// Workspace mount point inside the container.
@@ -833,8 +834,11 @@ mod tests {
     }
 
     /// End-to-end container run. Gated: requires a Docker daemon and the
-    /// pre-built `tessera-runner-js` image, so it is `#[ignore]`d and skips in
-    /// CI. Run locally with `cargo test -- --ignored docker_runner_executes`.
+    /// pre-built `tessera-runner-js` image, so it is `#[ignore]`d and skipped
+    /// by the plain unit-test run. CI runs it explicitly in the
+    /// `sandbox-runner-test` job (`.github/workflows/ci.yml`), which builds
+    /// the image first. Run locally with
+    /// `cargo test -- --ignored docker_runner_executes`.
     #[tokio::test(flavor = "multi_thread")]
     #[ignore = "requires Docker daemon + tessera-runner-js image"]
     async fn docker_runner_executes_a_real_suite() {
