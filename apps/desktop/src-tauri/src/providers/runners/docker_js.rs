@@ -99,6 +99,7 @@ impl TestRunner for DockerJsRunner {
     ) -> Result<RunnerOutput, RunnerError> {
         input.validate()?;
         ensure_docker_available().await?;
+        ensure_runner_image().await?;
 
         // Workspace is removed when `guard` drops — covers the happy path,
         // every `?` early-return, and a panic (§10: always cleaned up).
@@ -172,6 +173,51 @@ async fn ensure_docker_available() -> Result<(), RunnerError> {
         )));
     }
     Ok(())
+}
+
+/// Preflight: verify the locally-built runner image exists on the daemon.
+///
+/// The image is built locally and never published to a registry (local-first
+/// guarantee, see `docker/Dockerfile.runner-js`), so `docker run` against a
+/// missing image fails with a cryptic registry-pull error (`pull access
+/// denied`, exit 125) instead of anything actionable. The returned error
+/// carries the exact build command. A non-zero exit whose stderr does not
+/// say "No such image" (e.g. the daemon dropped between the two preflight
+/// probes) is routed to [`RunnerError::DockerUnavailable`] instead, so the
+/// user is never told to rebuild an image they already have.
+async fn ensure_runner_image() -> Result<(), RunnerError> {
+    let output = Command::new("docker")
+        .args(["image", "inspect", RUNNER_IMAGE])
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped())
+        .output()
+        .await
+        .map_err(|e| RunnerError::DockerUnavailable(format!("docker binary not found: {e}")))?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        if !is_no_such_image(&stderr) {
+            return Err(RunnerError::DockerUnavailable(format!(
+                "docker image inspect failed: {}",
+                stderr.trim()
+            )));
+        }
+        return Err(RunnerError::ImageMissing(format!(
+            "runner image `{RUNNER_IMAGE}` is not built; build it from the repo root with: \
+             docker build -t {RUNNER_IMAGE} \
+             -f apps/desktop/src-tauri/docker/Dockerfile.runner-js \
+             apps/desktop/src-tauri/docker"
+        )));
+    }
+    Ok(())
+}
+
+/// Whether `docker image inspect` stderr reports a missing image, as opposed
+/// to some other failure (daemon gone, permission error). Docker has phrased
+/// this as `Error: No such image: …` and `Error response from daemon: No such
+/// image: …` across versions, so match case-insensitively on the stable part.
+fn is_no_such_image(stderr: &str) -> bool {
+    stderr.to_ascii_lowercase().contains("no such image")
 }
 
 /// Write the source/test files plus a minimal `package.json` and vitest
@@ -738,6 +784,21 @@ mod tests {
         assert_eq!(derive_status(&all_pass), RunStatus::Passed);
 
         assert_eq!(derive_status(&[]), RunStatus::Error);
+    }
+
+    #[test]
+    fn is_no_such_image_discriminates_missing_image_from_daemon_failures() {
+        // Both stderr phrasings Docker has used for a missing image.
+        assert!(is_no_such_image("Error: No such image: tessera-runner-js:latest"));
+        assert!(is_no_such_image(
+            "Error response from daemon: No such image: tessera-runner-js:latest"
+        ));
+        // Daemon / transport failures must not be reported as a missing image.
+        assert!(!is_no_such_image(
+            "Cannot connect to the Docker daemon at unix:///var/run/docker.sock"
+        ));
+        assert!(!is_no_such_image("permission denied while trying to connect"));
+        assert!(!is_no_such_image(""));
     }
 
     #[test]
