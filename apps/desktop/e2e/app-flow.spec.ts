@@ -43,7 +43,9 @@ test.describe('desktop app flow', () => {
     await drawer.getByRole('button', { name: 'Approve' }).click();
     await expect(drawer.getByText('Approved')).toBeVisible();
 
-    await drawer.getByRole('button', { name: 'Export markdown' }).click();
+    // Markdown export now lives inside the export-format dropdown.
+    await drawer.getByRole('button', { name: 'Export', exact: true }).click();
+    await drawer.getByRole('menuitem', { name: 'Markdown (.md)' }).click();
     await expect
       .poll(async () => {
         try {
