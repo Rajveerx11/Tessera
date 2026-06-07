@@ -162,18 +162,19 @@ pub fn build_request_payload(req: &GenerateRequest, stream: bool) -> serde_json:
         "stream": stream,
     });
 
-    if req.tools.is_empty() {
-        // No tool schema to constrain output — force JSON via response_format.
-        payload["response_format"] = serde_json::json!({ "type": "json_object" });
-    } else {
-        // Tool schema already constrains output to JSON. Sending
-        // response_format alongside a forced tool_choice is rejected by
-        // Gemini's OpenAI-compat endpoint (400 INVALID_ARGUMENT: forced
-        // function calling with a JSON response mime type is unsupported).
+    if !req.tools.is_empty() {
         payload["tools"] = req.tools.iter().map(tool_to_openai).collect();
         if req.tools.len() == 1 {
             payload["tool_choice"] = tool_choice_to_openai(&req.tools[0]);
         }
+    }
+    if req.tools.len() != 1 {
+        // Force JSON output via response_format — except in the forced
+        // single-tool case, where the tool schema already constrains the
+        // output and Gemini's OpenAI-compat endpoint rejects the combination
+        // (400 INVALID_ARGUMENT: forced function calling with a JSON
+        // response mime type is unsupported).
+        payload["response_format"] = serde_json::json!({ "type": "json_object" });
     }
     if let Some(t) = req.temperature {
         payload["temperature"] = serde_json::json!(t);
@@ -555,6 +556,31 @@ mod tests {
         assert_eq!(body["tool_choice"]["function"]["name"], "emit_test_plan");
         // Gemini rejects response_format combined with forced tool_choice.
         assert!(body.get("response_format").is_none());
+    }
+
+    #[test]
+    fn build_request_payload_keeps_response_format_for_multi_tool() {
+        let mut request = empty_request();
+        request.tools = vec![
+            ToolSchema {
+                name: "emit_test_plan".into(),
+                description: "Emit a test plan.".into(),
+                parameters_schema: serde_json::json!({ "type": "object" }),
+            },
+            ToolSchema {
+                name: "emit_defect_report".into(),
+                description: "Emit a defect report.".into(),
+                parameters_schema: serde_json::json!({ "type": "object" }),
+            },
+        ];
+
+        let body = build_request_payload(&request, true);
+
+        // No forced tool_choice — response_format must stay so output is
+        // still constrained to JSON on every provider.
+        assert_eq!(body["tools"].as_array().map(Vec::len), Some(2));
+        assert!(body.get("tool_choice").is_none());
+        assert_eq!(body["response_format"]["type"], "json_object");
     }
 
     #[test]
