@@ -2,6 +2,7 @@
   "extends": "../../packages/tsconfig/desktop.json",
   "compilerOptions": {
     "baseUrl": ".",
+    "ignoreDeprecations": "5.0",
     "paths": {
       "@/*": ["./src/*"]
     },

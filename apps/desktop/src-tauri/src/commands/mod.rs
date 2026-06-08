@@ -28,6 +28,8 @@ pub mod ollama;
 pub mod projects;
 pub mod providers;
 pub mod sandbox;
+pub mod trackers;
+
 
 use serde::Serialize;
 use sqlx::SqlitePool;

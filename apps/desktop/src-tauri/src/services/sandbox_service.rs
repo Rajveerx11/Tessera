@@ -99,6 +99,7 @@ impl Drop for RegistryGuard<'_> {
 /// `GenerationDeps`).
 pub struct SandboxDeps<'a> {
     pub pool: &'a sqlx::SqlitePool,
+    pub crypto: Option<&'a crate::utils::crypto::CryptoKey>,
     pub runner: Arc<dyn TestRunner>,
     /// Live-run registry so a concurrent `cancel_test_sandbox` can stop this
     /// run mid-flight. Tests pass a throwaway [`RunRegistry::new`].
@@ -186,8 +187,8 @@ pub async fn run(request: RunRequest, deps: &SandboxDeps<'_>) -> AppResult<RunRe
     }
 
     match outcome {
-        Ok(output) => persist_success(deps, &run_id, output, duration_ms).await?,
-        Err(err) => persist_failure(deps, &run_id, &err, duration_ms).await?,
+        Ok(output) => persist_success(deps, &run_id, &artifact.id, output, duration_ms).await?,
+        Err(err) => persist_failure(deps, &run_id, &artifact.id, &err, duration_ms).await?,
     }
 
     // 6. Read back the canonical result.
@@ -208,6 +209,7 @@ pub fn request_cancel(registry: &RunRegistry, run_id: &str) -> bool {
 async fn persist_success(
     deps: &SandboxDeps<'_>,
     run_id: &str,
+    artifact_id: &str,
     output: RunnerOutput,
     duration_ms: u32,
 ) -> AppResult<()> {
@@ -243,6 +245,18 @@ async fn persist_success(
     )
     .await?;
 
+    if let Some(crypto) = deps.crypto {
+        let _ = crate::services::jira_push_service::post_run_comment(
+            deps.pool,
+            crypto,
+            artifact_id,
+            status.as_str(),
+            passed_count,
+            failed_count,
+        )
+        .await;
+    }
+
     write_err.map_or(Ok(()), Err)
 }
 
@@ -251,6 +265,7 @@ async fn persist_success(
 async fn persist_failure(
     deps: &SandboxDeps<'_>,
     run_id: &str,
+    artifact_id: &str,
     err: &RunnerError,
     duration_ms: u32,
 ) -> AppResult<()> {
@@ -270,7 +285,21 @@ async fn persist_failure(
             error_message: Some(format!("[{}] {err}", err.code())),
         },
     )
-    .await
+    .await?;
+
+    if let Some(crypto) = deps.crypto {
+        let _ = crate::services::jira_push_service::post_run_comment(
+            deps.pool,
+            crypto,
+            artifact_id,
+            status.as_str(),
+            0,
+            0,
+        )
+        .await;
+    }
+
+    Ok(())
 }
 
 /// Build a [`RunInput`] from the artifact's `structured_data.files`.
@@ -492,7 +521,7 @@ mod tests {
         let runner: Arc<dyn TestRunner> =
             Arc::new(ScriptedRunner::new(Scripted::Succeed(sample_output())));
         let registry = RunRegistry::new();
-        let deps = SandboxDeps { pool: &pool, runner, registry: &registry };
+        let deps = SandboxDeps { pool: &pool, crypto: None, runner, registry: &registry };
 
         let result = run(
             RunRequest {
@@ -525,7 +554,7 @@ mod tests {
         let runner: Arc<dyn TestRunner> =
             Arc::new(ScriptedRunner::new(Scripted::Succeed(sample_output())));
         let registry = RunRegistry::new();
-        let deps = SandboxDeps { pool: &pool, runner, registry: &registry };
+        let deps = SandboxDeps { pool: &pool, crypto: None, runner, registry: &registry };
 
         let err = run(
             RunRequest {
@@ -551,7 +580,7 @@ mod tests {
         let runner: Arc<dyn TestRunner> =
             Arc::new(ScriptedRunner::new(Scripted::Succeed(sample_output())));
         let registry = RunRegistry::new();
-        let deps = SandboxDeps { pool: &pool, runner, registry: &registry };
+        let deps = SandboxDeps { pool: &pool, crypto: None, runner, registry: &registry };
 
         let err = run(
             RunRequest {
@@ -578,7 +607,7 @@ mod tests {
             RunnerError::DockerUnavailable("daemon down".into()),
         )));
         let registry = RunRegistry::new();
-        let deps = SandboxDeps { pool: &pool, runner, registry: &registry };
+        let deps = SandboxDeps { pool: &pool, crypto: None, runner, registry: &registry };
 
         let result = run(
             RunRequest {
@@ -610,7 +639,7 @@ mod tests {
             RunnerError::ImageMissing("runner image `tessera-runner-js` is not built".into()),
         )));
         let registry = RunRegistry::new();
-        let deps = SandboxDeps { pool: &pool, runner, registry: &registry };
+        let deps = SandboxDeps { pool: &pool, crypto: None, runner, registry: &registry };
 
         let result = run(
             RunRequest {
@@ -673,7 +702,7 @@ mod tests {
         let runner: Arc<dyn TestRunner> =
             Arc::new(ScriptedRunner::new(Scripted::Succeed(sample_output())));
         let registry = RunRegistry::new();
-        let deps = SandboxDeps { pool: &pool, runner, registry: &registry };
+        let deps = SandboxDeps { pool: &pool, crypto: None, runner, registry: &registry };
 
         let err = run(
             RunRequest {
@@ -743,7 +772,7 @@ mod tests {
         let pool_for_run = pool.clone();
         let aid = artifact_id.clone();
         let handle = tokio::spawn(async move {
-            let deps = SandboxDeps { pool: &pool_for_run, runner, registry: &reg };
+            let deps = SandboxDeps { pool: &pool_for_run, crypto: None, runner, registry: &reg };
             run(
                 RunRequest {
                     artifact_id: aid,
@@ -765,6 +794,100 @@ mod tests {
 
         let result = handle.await.expect("join").expect("run returns a result");
         assert_eq!(result.status, RunStatus::Cancelled);
+
+        pool.close().await;
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn run_posts_jira_comment_on_completion() {
+        let (pool, path) = open_pool().await;
+        let artifact_id = seed_artifact(&pool, ArtifactType::TestCases).await;
+
+        // 1. Setup mock server
+        let mut server = mockito::Server::new_async().await;
+        let mock = server
+            .mock("POST", "/rest/api/2/issue/PROJ-123/comment")
+            .with_status(201)
+            .with_header("content-type", "application/json")
+            .with_body(r#"{"id":"comment-123"}"#)
+            .create_async()
+            .await;
+
+        // 2. Insert active tracker config
+        let crypto = crate::utils::crypto::CryptoKey::from_bytes([99u8; 32]);
+        let (ciphertext, nonce) = crypto.encrypt(b"token-xyz").expect("encrypt");
+        let now = chrono::Utc::now().to_rfc3339();
+        
+        sqlx::query(
+            "INSERT INTO tracker_configs \
+             (id, user_id, tracker, site_url, email, api_token_encrypted, api_token_nonce, \
+              project_key, issue_type, severity_map_json, is_active, created_at, updated_at) \
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        )
+        .bind(Uuid::new_v4().to_string())
+        .bind("00000000-0000-4000-8000-000000000001")
+        .bind("jira")
+        .bind(server.url())
+        .bind("email@acme.com")
+        .bind(&ciphertext)
+        .bind(&nonce)
+        .bind("PROJ")
+        .bind("Task")
+        .bind(None::<String>)
+        .bind(1)
+        .bind(&now)
+        .bind(&now)
+        .execute(&pool)
+        .await
+        .expect("config insert");
+
+        // 3. Insert external link
+        sqlx::query(
+            "INSERT INTO external_links \
+             (id, artifact_id, tracker, item_ref, issue_key, issue_url, issue_type, last_status, status_fetched_at, created_at, updated_at) \
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        )
+        .bind(Uuid::new_v4().to_string())
+        .bind(&artifact_id)
+        .bind("jira")
+        .bind("")
+        .bind("PROJ-123")
+        .bind("https://acme.atlassian.net/browse/PROJ-123")
+        .bind("Task")
+        .bind("To Do")
+        .bind(None::<String>)
+        .bind(&now)
+        .bind(&now)
+        .execute(&pool)
+        .await
+        .expect("link insert");
+
+        // 4. Drive run
+        let runner: Arc<dyn TestRunner> = Arc::new(ScriptedRunner::new(Scripted::Succeed(sample_output())));
+        let registry = RunRegistry::new();
+        let deps = SandboxDeps {
+            pool: &pool,
+            crypto: Some(&crypto),
+            runner,
+            registry: &registry,
+        };
+
+        let result = run(
+            RunRequest {
+                artifact_id: artifact_id.clone(),
+                opt_in_confirmed: true,
+                client_run_id: String::new(),
+            },
+            &deps,
+        )
+        .await
+        .expect("run succeeds");
+
+        assert_eq!(result.status, RunStatus::Failed);
+
+        // 5. Assert mock comment was posted
+        mock.assert_async().await;
 
         pool.close().await;
         let _ = std::fs::remove_file(&path);

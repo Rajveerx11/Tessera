@@ -3,6 +3,7 @@ import type {
   ArtifactSummary,
   ArtifactVersionSummary,
   ExportFormat,
+  TrackerConfigView,
 } from '@testing-ide/shared';
 import {
   CheckCircle2,
@@ -36,6 +37,7 @@ import {
   exports as exportsIpc,
   generation,
   getErrorMessage,
+  trackers,
 } from '@/lib/ipc';
 import { useAiStore } from '@/stores/ai-store';
 import { useWorkspaceStore } from '@/stores/workspace-store';
@@ -44,6 +46,7 @@ import {
   ArtifactStructuredView,
   parseStructuredArtifact,
 } from '@/components/ai-panel/artifact-structured-view';
+import { JiraPushDialog } from '@/components/ai-panel/jira-push-dialog';
 import { DiffView } from '@/components/ai-panel/diff-view';
 import { SandboxRunPanel } from '@/components/ai-panel/sandbox-run-panel';
 
@@ -70,6 +73,8 @@ export function ArtifactDetailDrawer({ summary, onClose }: Props) {
   const [current, setCurrent] = useState<ArtifactSummary>(summary);
   const [detail, setDetail] = useState<ArtifactDetail | null>(null);
   const [loading, setLoading] = useState(true);
+  const [jiraPushOpen, setJiraPushOpen] = useState(false);
+  const [jiraConfig, setJiraConfig] = useState<TrackerConfigView | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [feedback, setFeedback] = useState('');
   const [regenerating, setRegenerating] = useState(false);
@@ -106,6 +111,20 @@ export function ArtifactDetailDrawer({ summary, onClose }: Props) {
   useEffect(() => {
     setCurrent((prev) => (prev.id === summary.id ? prev : summary));
   }, [summary]);
+
+  useEffect(() => {
+    void (async () => {
+      try {
+        const config = await trackers.getTrackerConfig('jira');
+        if (config && config.isActive) {
+          setJiraConfig(config);
+        }
+      } catch {
+        // Non-critical: the Jira push affordance simply stays hidden when the
+        // config can't be loaded. Surfacing an error here would be noise.
+      }
+    })();
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -625,6 +644,17 @@ export function ArtifactDetailDrawer({ summary, onClose }: Props) {
                 </>
               ) : null}
             </div>
+            {jiraConfig && ['defect-report', 'bug-report', 'test-plan', 'test-cases'].includes(current.artifactType) && (
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                onClick={() => setJiraPushOpen(true)}
+                disabled={detail === null}
+              >
+                Push to Jira
+              </Button>
+            )}
             <Button
               type="button"
               size="sm"
@@ -648,6 +678,12 @@ export function ArtifactDetailDrawer({ summary, onClose }: Props) {
           ) : null}
           {exportStatus !== null ? <p className="text-muted-foreground text-[10px]">{exportStatus}</p> : null}
         </footer>
+        {jiraPushOpen && (
+          <JiraPushDialog
+            artifactId={current.id}
+            onClose={() => setJiraPushOpen(false)}
+          />
+        )}
     </Dialog>
   );
 }

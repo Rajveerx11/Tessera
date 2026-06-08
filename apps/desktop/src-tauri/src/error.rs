@@ -9,6 +9,8 @@ use std::io;
 use thiserror::Error;
 
 use crate::providers::llm::LlmError;
+use crate::providers::trackers::TrackerError;
+
 
 /// Top-level error type for all backend operations.
 ///
@@ -45,6 +47,12 @@ pub enum AppError {
     /// `providers::llm::LlmError` (rules.md §5.3 — typed errors propagate).
     #[error("llm error: {0}")]
     Llm(#[from] LlmError),
+
+    /// Tracker provider returned an error. Bridges from
+    /// `providers::trackers::TrackerError` (rules.md §5.3 — typed errors propagate).
+    #[error("tracker error: {0}")]
+    Tracker(#[from] TrackerError),
+
 
     /// Requested resource was not found.
     #[error("not found: {0}")]
@@ -89,7 +97,9 @@ impl AppError {
             Self::Http(_) => "HTTP_ERROR",
             Self::Serde(_) => "SERIALIZATION_ERROR",
             Self::Llm(inner) => inner.code(),
+            Self::Tracker(inner) => inner.code(),
             Self::NotFound(_) => "NOT_FOUND",
+
             Self::Unauthorized(_) => "UNAUTHORIZED",
             Self::InvalidInput(_) => "INVALID_INPUT",
             Self::LimitExceeded(_) => "LIMIT_EXCEEDED",
@@ -128,6 +138,14 @@ mod tests {
         let app_err: AppError = inner.into();
         assert_eq!(app_err.code(), "LLM_AUTH_FAILED");
     }
+
+    #[test]
+    fn tracker_variant_delegates_code_to_inner_error() {
+        let inner = TrackerError::AuthFailed("invalid token".into());
+        let app_err: AppError = inner.into();
+        assert_eq!(app_err.code(), "TRACKER_AUTH_FAILED");
+    }
+
 
     #[test]
     fn display_includes_inner_message() {
