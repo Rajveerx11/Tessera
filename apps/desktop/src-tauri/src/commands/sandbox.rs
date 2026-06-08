@@ -16,6 +16,7 @@ use tauri::State;
 use crate::providers::runners::docker_js::DockerJsRunner;
 use crate::providers::runners::{RunRequest, RunResult, TestRunner};
 use crate::services::sandbox_service::{self, RunRegistry, SandboxDeps};
+use crate::utils::crypto::CryptoKey;
 
 /// Execute a generated test-case artifact in the local Docker sandbox and
 /// return the persisted result.
@@ -33,11 +34,13 @@ use crate::services::sandbox_service::{self, RunRegistry, SandboxDeps};
 pub async fn run_test_sandbox(
     pool: State<'_, SqlitePool>,
     registry: State<'_, RunRegistry>,
+    crypto: State<'_, CryptoKey>,
     request: RunRequest,
 ) -> Result<RunResult, String> {
     let runner: Arc<dyn TestRunner> = Arc::new(DockerJsRunner::new());
     let deps = SandboxDeps {
         pool: &pool,
+        crypto: Some(&crypto),
         runner,
         registry: &registry,
     };

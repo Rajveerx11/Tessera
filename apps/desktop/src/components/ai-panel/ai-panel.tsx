@@ -1,4 +1,5 @@
-import type { ArtifactSummary, GenerationArtifactType } from '@testing-ide/shared';
+import type { ArtifactSummary, GenerationArtifactType, ExternalLink } from '@testing-ide/shared';
+import { toast } from '@/stores/toast-store';
 import {
   Bug,
   CheckCircle2,
@@ -9,6 +10,8 @@ import {
   RefreshCw,
   Search,
   XCircle,
+  ArrowUpRight,
+  X,
 } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -22,6 +25,7 @@ import {
   getErrorMessage,
   providers,
   streaming,
+  trackers,
 } from '@/lib/ipc';
 import { extractStreamingPreview } from '@/lib/partial-json';
 import { pickActiveProvider } from '@/lib/provider';
@@ -72,6 +76,9 @@ export function AiPanel() {
 
   const [openArtifact, setOpenArtifact] = useState<ArtifactSummary | null>(null);
   const [queueFilter, setQueueFilter] = useState('');
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [externalLinks, setExternalLinks] = useState<Record<string, ExternalLink>>({});
+  const [bulkPushing, setBulkPushing] = useState(false);
 
   // Case-insensitive substring match across title + artifact-type +
   // model. Empty query → full queue. Memoised so we don't re-scan on
@@ -141,13 +148,23 @@ export function AiPanel() {
   const refreshArtifacts = useCallback(() => {
     if (project === null) {
       setArtifacts([]);
+      setExternalLinks({});
       return;
     }
     setLoadingArtifacts(true);
     void (async () => {
       try {
-        const list = await artifactsIpc.listArtifacts(project.id);
+        const [list, linksList] = await Promise.all([
+          artifactsIpc.listArtifacts(project.id),
+          trackers.listExternalLinks(),
+        ]);
         setArtifacts(list);
+
+        const linksMap: Record<string, ExternalLink> = {};
+        for (const link of linksList) {
+          linksMap[link.artifactId] = link;
+        }
+        setExternalLinks(linksMap);
       } catch (err) {
         setArtifactsError(getErrorMessage(err));
       } finally {
@@ -284,6 +301,91 @@ export function AiPanel() {
     [setArtifactsError, upsertArtifact],
   );
 
+  const toggleSelect = useCallback((id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+  }, []);
+
+  const clearSelection = useCallback(() => {
+    setSelectedIds(new Set());
+  }, []);
+
+  const handleBulkPush = useCallback(() => {
+    const ids = Array.from(selectedIds);
+    if (ids.length === 0) return;
+    setBulkPushing(true);
+    void (async () => {
+      try {
+        const results = await trackers.bulkPushArtifactsToJira(ids);
+        
+        const succeeded = results.filter((r) => r.success);
+        const failed = results.filter((r) => !r.success);
+        
+        if (succeeded.length > 0) {
+          toast.ok(`Pushed ${succeeded.length} artifact(s) to Jira.`, { title: 'Bulk Push' });
+        }
+        if (failed.length > 0) {
+          toast.err(`Failed to push ${failed.length} artifact(s).`, { title: 'Bulk Push' });
+        }
+        
+        const linksList = await trackers.listExternalLinks();
+        const linksMap: Record<string, ExternalLink> = {};
+        for (const link of linksList) {
+          linksMap[link.artifactId] = link;
+        }
+        setExternalLinks(linksMap);
+        clearSelection();
+      } catch (err) {
+        toast.err(`Bulk push failed: ${getErrorMessage(err)}`, { title: 'Bulk Push' });
+      } finally {
+        setBulkPushing(false);
+      }
+    })();
+  }, [selectedIds, clearSelection]);
+
+  const handleBulkApprove = useCallback(() => {
+    const ids = Array.from(selectedIds);
+    if (ids.length === 0) return;
+    void (async () => {
+      try {
+        await Promise.all(ids.map((id) => artifactsIpc.approveArtifact(id)));
+        
+        for (const id of ids) {
+          const artifact = reviewQueue.find((a) => a.id === id);
+          if (artifact) {
+            upsertArtifact({ ...artifact, status: 'approved' });
+          }
+        }
+        toast.ok(`Approved ${ids.length} artifact(s).`, { title: 'Bulk Approval' });
+        clearSelection();
+      } catch (err) {
+        toast.err(`Bulk approval failed: ${getErrorMessage(err)}`, { title: 'Bulk Approval' });
+      }
+    })();
+  }, [selectedIds, reviewQueue, upsertArtifact, clearSelection]);
+
+  const handleRefreshLinkStatus = useCallback(async (linkId: string) => {
+    try {
+      const updated = await trackers.refreshExternalLinkStatus(linkId);
+      setExternalLinks((prev) => ({
+        ...prev,
+        [updated.artifactId]: updated,
+      }));
+      toast.ok(`Refreshed Jira status to: ${updated.lastStatus || 'Unknown'}`, { title: 'Jira Integration' });
+    } catch (err) {
+      toast.err(`Failed to refresh status: ${getErrorMessage(err)}`, { title: 'Jira Integration' });
+    }
+  }, []);
+
+  const hasSelection = selectedIds.size > 0;
+
   return (
     <div className="flex h-full flex-col">
       <div className="border-b border-border px-3 h-8 flex items-center justify-between bg-card">
@@ -376,6 +478,47 @@ export function AiPanel() {
           </span>
         </div>
 
+        {hasSelection ? (
+          <div className="mb-3 flex items-center justify-between gap-2 bg-muted/60 border border-border p-2 rounded-md">
+            <span className="text-xs font-semibold text-foreground font-mono">
+              {selectedIds.size} selected
+            </span>
+            <div className="flex items-center gap-1.5">
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                onClick={handleBulkPush}
+                disabled={bulkPushing}
+                className="h-7 text-[10px] px-2 font-mono"
+              >
+                {bulkPushing ? (
+                  <Loader2 className="size-3 animate-spin mr-1 text-primary" />
+                ) : null}
+                Push to Jira
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                onClick={handleBulkApprove}
+                className="h-7 text-[10px] px-2 font-mono"
+              >
+                Approve
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant="ghost"
+                onClick={clearSelection}
+                className="h-7 w-7 p-0 flex items-center justify-center"
+                title="Clear selection"
+              >
+                <X className="size-3.5" />
+              </Button>
+            </div>
+          </div>
+        ) : null}
+
         {reviewQueue.length > 0 ? (
           <div className="relative mb-2">
             <Search className="text-muted-foreground absolute left-2 top-1/2 size-3.5 -translate-y-1/2" />
@@ -414,6 +557,10 @@ export function AiPanel() {
                 onApprove={handleApprove}
                 onReject={handleReject}
                 onOpen={setOpenArtifact}
+                isSelected={selectedIds.has(a.id)}
+                onToggleSelect={toggleSelect}
+                externalLink={externalLinks[a.id]}
+                onRefreshLinkStatus={handleRefreshLinkStatus}
               />
             ))}
           </ul>
@@ -434,13 +581,23 @@ function ArtifactRow({
   onApprove,
   onReject,
   onOpen,
+  isSelected,
+  onToggleSelect,
+  externalLink,
+  onRefreshLinkStatus,
 }: {
   artifact: ArtifactSummary;
   onApprove: (a: ArtifactSummary) => void;
   onReject: (a: ArtifactSummary) => void;
   onOpen: (a: ArtifactSummary) => void;
+  isSelected: boolean;
+  onToggleSelect: (id: string) => void;
+  externalLink?: ExternalLink | undefined;
+  onRefreshLinkStatus: (linkId: string) => Promise<void>;
 }) {
   const isPending = artifact.status === 'draft' || artifact.status === 'in_review';
+  const [refreshingLink, setRefreshingLink] = useState(false);
+
   // Stitch artifact-card: 1px-wide status-colored stripe pinned to the
   // left edge so the queue can be scanned by colour at a glance.
   const stripe: Record<ArtifactSummary['status'], string> = {
@@ -449,55 +606,103 @@ function ArtifactRow({
     approved: 'bg-primary',
     rejected: 'bg-destructive',
   };
+
+  const handleRefresh = useCallback((e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!externalLink) return;
+    setRefreshingLink(true);
+    void (async () => {
+      try {
+        await onRefreshLinkStatus(externalLink.id);
+      } finally {
+        setRefreshingLink(false);
+      }
+    })();
+  }, [externalLink, onRefreshLinkStatus]);
+
   return (
-    <li className="group relative overflow-hidden rounded-md border border-border bg-card p-2 text-xs transition-colors hover:border-primary/50">
+    <li className="group relative overflow-hidden rounded-md border border-border bg-card p-2 text-xs transition-colors hover:border-primary/50 flex items-start gap-2 pl-3">
       <span
         aria-hidden="true"
         className={`absolute left-0 top-0 h-full w-1 ${stripe[artifact.status]}`}
       />
-      <button
-        type="button"
-        onClick={() => onOpen(artifact)}
-        className="-m-2 mb-0 block w-[calc(100%+1rem)] rounded-t-md p-2 pl-3 text-left transition-colors hover:bg-muted/40"
-        aria-label={`Open ${artifact.title}`}
-      >
-        <div className="flex items-start justify-between gap-2">
-          <div className="min-w-0 flex-1">
-            <p className="truncate font-mono text-foreground" title={artifact.title}>
-              {artifact.title}
-            </p>
-            <p className="text-muted-foreground mt-0.5 text-[10px]">
-              {artifact.artifactType} · v{artifact.version} ·{' '}
-              <span className="font-mono">{artifact.model}</span>
-            </p>
-          </div>
+
+      <input
+        type="checkbox"
+        checked={isSelected}
+        onChange={() => onToggleSelect(artifact.id)}
+        className="mt-1.5 size-3.5 accent-primary shrink-0 cursor-pointer"
+        aria-label={`Select ${artifact.title}`}
+      />
+
+      <div className="min-w-0 flex-1 space-y-1">
+        <button
+          type="button"
+          onClick={() => onOpen(artifact)}
+          className="block w-full text-left font-mono text-foreground hover:text-primary transition-colors truncate font-semibold"
+          aria-label={`Open ${artifact.title}`}
+          title={artifact.title}
+        >
+          {artifact.title}
+        </button>
+
+        <div className="flex items-center justify-between gap-2 flex-wrap">
+          <span className="text-muted-foreground text-[10px]">
+            {artifact.artifactType} · v{artifact.version} ·{' '}
+            <span className="font-mono">{artifact.model}</span>
+          </span>
           <StatusBadge status={artifact.status} />
         </div>
-      </button>
-      {isPending ? (
-        <div className="mt-2 flex items-center gap-1 pl-1">
-          <Button
-            type="button"
-            size="sm"
-            variant="secondary"
-            onClick={() => onApprove(artifact)}
-            className="flex-1"
-          >
-            <CheckCircle2 className="size-3" />
-            Approve
-          </Button>
-          <Button
-            type="button"
-            size="sm"
-            variant="ghost"
-            onClick={() => onReject(artifact)}
-            className="flex-1"
-          >
-            <XCircle className="size-3" />
-            Reject
-          </Button>
-        </div>
-      ) : null}
+
+        {externalLink && (
+          <div className="flex items-center gap-1.5 bg-muted/50 border border-border/80 rounded px-1.5 py-0.5 text-[9px] w-fit font-mono mt-1">
+            <a
+              href={externalLink.issueUrl}
+              target="_blank"
+              rel="noreferrer noopener"
+              className="text-primary hover:underline flex items-center gap-0.5 font-semibold"
+            >
+              {externalLink.issueKey}
+              {externalLink.lastStatus ? ` (${externalLink.lastStatus})` : ''}
+              <ArrowUpRight className="size-2.5" />
+            </a>
+            <button
+              type="button"
+              onClick={handleRefresh}
+              disabled={refreshingLink}
+              className="text-muted-foreground hover:text-foreground transition-colors p-0.5 rounded hover:bg-muted"
+              title="Refresh Jira status"
+            >
+              <RefreshCw className={`size-2.5 ${refreshingLink ? 'animate-spin' : ''}`} />
+            </button>
+          </div>
+        )}
+
+        {isPending && (
+          <div className="mt-2 flex items-center gap-1 pl-1">
+            <Button
+              type="button"
+              size="sm"
+              variant="secondary"
+              onClick={() => onApprove(artifact)}
+              className="flex-1 h-7 text-[10px]"
+            >
+              <CheckCircle2 className="size-3" />
+              Approve
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost"
+              onClick={() => onReject(artifact)}
+              className="flex-1 h-7 text-[10px]"
+            >
+              <XCircle className="size-3" />
+              Reject
+            </Button>
+          </div>
+        )}
+      </div>
     </li>
   );
 }

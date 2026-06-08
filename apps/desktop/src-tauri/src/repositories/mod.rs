@@ -22,8 +22,11 @@
 pub mod artifact_repo;
 pub mod chunk_repo;
 pub mod embedding_config_repo;
+pub mod external_link_repo;
 pub mod project_file_repo;
 pub mod project_repo;
 pub mod provider_config_repo;
 pub mod test_run_repo;
+pub mod tracker_config_repo;
 pub mod user_repo;
+
