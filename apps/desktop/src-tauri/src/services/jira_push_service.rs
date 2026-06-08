@@ -14,6 +14,33 @@ use crate::utils::crypto::CryptoKey;
 
 const DEFAULT_USER_ID: &str = "00000000-0000-4000-8000-000000000001";
 
+/// Parse the optional `severity_map_json` config blob into a lookup table.
+/// Shape: `{ "p0": "Highest", "p1": "High", ... }`. Malformed JSON is ignored
+/// and the built-in default mapping applies.
+fn parse_severity_map(raw: Option<&str>) -> std::collections::HashMap<String, String> {
+    raw.and_then(|s| serde_json::from_str::<std::collections::HashMap<String, String>>(s).ok())
+        .unwrap_or_default()
+}
+
+/// Map an artifact case priority (`p0`–`p3`) to a Jira priority name, honoring
+/// the user's `severity_map` override before falling back to the default.
+fn resolve_jira_priority(
+    case_priority: Option<&str>,
+    severity_map: &std::collections::HashMap<String, String>,
+) -> Option<String> {
+    let key = case_priority?;
+    if let Some(mapped) = severity_map.get(key) {
+        return Some(mapped.clone());
+    }
+    match key {
+        "p0" => Some("High".to_string()),
+        "p1" => Some("Medium".to_string()),
+        "p2" => Some("Low".to_string()),
+        "p3" => Some("Lowest".to_string()),
+        other => Some(other.to_string()),
+    }
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PushResult {
@@ -55,6 +82,7 @@ pub async fn push_artifact(
 ) -> AppResult<PushResult> {
     let tracker_config = tracker_config_repo::fetch_active(pool, DEFAULT_USER_ID, "jira").await?;
     let tracker = build_tracker_client(crypto, &tracker_config)?;
+    let severity_map = parse_severity_map(tracker_config.severity_map_json.as_deref());
     let artifact = crate::repositories::artifact_repo::fetch(pool, artifact_id).await?;
 
     let mut keys = Vec::new();
@@ -125,14 +153,8 @@ pub async fn push_artifact(
                     description.push('\n');
                 }
 
-                // Map priority
-                let jira_priority = match case.priority.as_deref() {
-                    Some("p0") => Some("High".to_string()),
-                    Some("p1") => Some("Medium".to_string()),
-                    Some("p2") => Some("Low".to_string()),
-                    Some("p3") => Some("Lowest".to_string()),
-                    other => other.map(String::from),
-                };
+                // Map priority, honoring the config's severity override.
+                let jira_priority = resolve_jira_priority(case.priority.as_deref(), &severity_map);
 
                 let new_issue = NewIssue {
                     project_key: tracker_config.project_key.clone(),
@@ -268,18 +290,52 @@ pub async fn post_run_comment(
     }
 
     let date = chrono::Utc::now().format("%Y-%m-%d").to_string();
-    let body = format!(
-        "Automated run {}: {} — {}/{} passed",
-        date,
-        status.to_uppercase(),
-        passed_count,
-        passed_count + failed_count
-    );
+    let total = passed_count + failed_count;
+    let body = if total == 0 {
+        // Runner errored/cancelled before any test executed — a "0/0 passed"
+        // fraction reads as a broken denominator, so omit it entirely.
+        format!("Automated run {}: {}", date, status.to_uppercase())
+    } else {
+        format!(
+            "Automated run {}: {} — {}/{} passed",
+            date,
+            status.to_uppercase(),
+            passed_count,
+            total
+        )
+    };
 
     for link in links {
         let _ = tracker.add_comment(&link.issue_key, &body).await;
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{parse_severity_map, resolve_jira_priority};
+
+    #[test]
+    fn severity_override_beats_default() {
+        let map = parse_severity_map(Some(r#"{"p0":"Highest","p1":"High"}"#));
+        assert_eq!(resolve_jira_priority(Some("p0"), &map).as_deref(), Some("Highest"));
+        assert_eq!(resolve_jira_priority(Some("p1"), &map).as_deref(), Some("High"));
+    }
+
+    #[test]
+    fn falls_back_to_default_mapping() {
+        let map = parse_severity_map(None);
+        assert_eq!(resolve_jira_priority(Some("p2"), &map).as_deref(), Some("Low"));
+        assert_eq!(resolve_jira_priority(Some("custom"), &map).as_deref(), Some("custom"));
+        assert_eq!(resolve_jira_priority(None, &map), None);
+    }
+
+    #[test]
+    fn malformed_severity_json_is_ignored() {
+        let map = parse_severity_map(Some("not json"));
+        assert!(map.is_empty());
+        assert_eq!(resolve_jira_priority(Some("p3"), &map).as_deref(), Some("Lowest"));
+    }
 }
 

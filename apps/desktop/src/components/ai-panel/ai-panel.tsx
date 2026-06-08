@@ -77,7 +77,7 @@ export function AiPanel() {
   const [openArtifact, setOpenArtifact] = useState<ArtifactSummary | null>(null);
   const [queueFilter, setQueueFilter] = useState('');
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
-  const [externalLinks, setExternalLinks] = useState<Record<string, ExternalLink>>({});
+  const [externalLinks, setExternalLinks] = useState<Record<string, ExternalLink[]>>({});
   const [bulkPushing, setBulkPushing] = useState(false);
 
   // Case-insensitive substring match across title + artifact-type +
@@ -159,12 +159,7 @@ export function AiPanel() {
           trackers.listExternalLinks(),
         ]);
         setArtifacts(list);
-
-        const linksMap: Record<string, ExternalLink> = {};
-        for (const link of linksList) {
-          linksMap[link.artifactId] = link;
-        }
-        setExternalLinks(linksMap);
+        setExternalLinks(groupLinksByArtifact(linksList));
       } catch (err) {
         setArtifactsError(getErrorMessage(err));
       } finally {
@@ -336,11 +331,7 @@ export function AiPanel() {
         }
         
         const linksList = await trackers.listExternalLinks();
-        const linksMap: Record<string, ExternalLink> = {};
-        for (const link of linksList) {
-          linksMap[link.artifactId] = link;
-        }
-        setExternalLinks(linksMap);
+        setExternalLinks(groupLinksByArtifact(linksList));
         clearSelection();
       } catch (err) {
         toast.err(`Bulk push failed: ${getErrorMessage(err)}`, { title: 'Bulk Push' });
@@ -374,10 +365,13 @@ export function AiPanel() {
   const handleRefreshLinkStatus = useCallback(async (linkId: string) => {
     try {
       const updated = await trackers.refreshExternalLinkStatus(linkId);
-      setExternalLinks((prev) => ({
-        ...prev,
-        [updated.artifactId]: updated,
-      }));
+      setExternalLinks((prev) => {
+        const current = prev[updated.artifactId] ?? [];
+        const next = current.some((l) => l.id === updated.id)
+          ? current.map((l) => (l.id === updated.id ? updated : l))
+          : [...current, updated];
+        return { ...prev, [updated.artifactId]: next };
+      });
       toast.ok(`Refreshed Jira status to: ${updated.lastStatus || 'Unknown'}`, { title: 'Jira Integration' });
     } catch (err) {
       toast.err(`Failed to refresh status: ${getErrorMessage(err)}`, { title: 'Jira Integration' });
@@ -559,7 +553,7 @@ export function AiPanel() {
                 onOpen={setOpenArtifact}
                 isSelected={selectedIds.has(a.id)}
                 onToggleSelect={toggleSelect}
-                externalLink={externalLinks[a.id]}
+                links={externalLinks[a.id] ?? []}
                 onRefreshLinkStatus={handleRefreshLinkStatus}
               />
             ))}
@@ -576,6 +570,19 @@ export function AiPanel() {
   );
 }
 
+/**
+ * Group external links by their artifact id. One artifact can map to many
+ * issues (a TestCases artifact pushes one Jira issue per case), so the value
+ * is a list — never collapse it to a single link or all but one is lost.
+ */
+function groupLinksByArtifact(links: ExternalLink[]): Record<string, ExternalLink[]> {
+  const map: Record<string, ExternalLink[]> = {};
+  for (const link of links) {
+    (map[link.artifactId] ??= []).push(link);
+  }
+  return map;
+}
+
 function ArtifactRow({
   artifact,
   onApprove,
@@ -583,7 +590,7 @@ function ArtifactRow({
   onOpen,
   isSelected,
   onToggleSelect,
-  externalLink,
+  links,
   onRefreshLinkStatus,
 }: {
   artifact: ArtifactSummary;
@@ -592,11 +599,11 @@ function ArtifactRow({
   onOpen: (a: ArtifactSummary) => void;
   isSelected: boolean;
   onToggleSelect: (id: string) => void;
-  externalLink?: ExternalLink | undefined;
+  links: ExternalLink[];
   onRefreshLinkStatus: (linkId: string) => Promise<void>;
 }) {
   const isPending = artifact.status === 'draft' || artifact.status === 'in_review';
-  const [refreshingLink, setRefreshingLink] = useState(false);
+  const [refreshingId, setRefreshingId] = useState<string | null>(null);
 
   // Stitch artifact-card: 1px-wide status-colored stripe pinned to the
   // left edge so the queue can be scanned by colour at a glance.
@@ -607,18 +614,17 @@ function ArtifactRow({
     rejected: 'bg-destructive',
   };
 
-  const handleRefresh = useCallback((e: React.MouseEvent) => {
+  const handleRefresh = useCallback((e: React.MouseEvent, linkId: string) => {
     e.stopPropagation();
-    if (!externalLink) return;
-    setRefreshingLink(true);
+    setRefreshingId(linkId);
     void (async () => {
       try {
-        await onRefreshLinkStatus(externalLink.id);
+        await onRefreshLinkStatus(linkId);
       } finally {
-        setRefreshingLink(false);
+        setRefreshingId(null);
       }
     })();
-  }, [externalLink, onRefreshLinkStatus]);
+  }, [onRefreshLinkStatus]);
 
   return (
     <li className="group relative overflow-hidden rounded-md border border-border bg-card p-2 text-xs transition-colors hover:border-primary/50 flex items-start gap-2 pl-3">
@@ -654,27 +660,34 @@ function ArtifactRow({
           <StatusBadge status={artifact.status} />
         </div>
 
-        {externalLink && (
-          <div className="flex items-center gap-1.5 bg-muted/50 border border-border/80 rounded px-1.5 py-0.5 text-[9px] w-fit font-mono mt-1">
-            <a
-              href={externalLink.issueUrl}
-              target="_blank"
-              rel="noreferrer noopener"
-              className="text-primary hover:underline flex items-center gap-0.5 font-semibold"
-            >
-              {externalLink.issueKey}
-              {externalLink.lastStatus ? ` (${externalLink.lastStatus})` : ''}
-              <ArrowUpRight className="size-2.5" />
-            </a>
-            <button
-              type="button"
-              onClick={handleRefresh}
-              disabled={refreshingLink}
-              className="text-muted-foreground hover:text-foreground transition-colors p-0.5 rounded hover:bg-muted"
-              title="Refresh Jira status"
-            >
-              <RefreshCw className={`size-2.5 ${refreshingLink ? 'animate-spin' : ''}`} />
-            </button>
+        {links.length > 0 && (
+          <div className="flex flex-wrap items-center gap-1.5 mt-1">
+            {links.map((link) => (
+              <div
+                key={link.id}
+                className="flex items-center gap-1.5 bg-muted/50 border border-border/80 rounded px-1.5 py-0.5 text-[9px] w-fit font-mono"
+              >
+                <a
+                  href={link.issueUrl}
+                  target="_blank"
+                  rel="noreferrer noopener"
+                  className="text-primary hover:underline flex items-center gap-0.5 font-semibold"
+                >
+                  {link.issueKey}
+                  {link.lastStatus ? ` (${link.lastStatus})` : ''}
+                  <ArrowUpRight className="size-2.5" />
+                </a>
+                <button
+                  type="button"
+                  onClick={(e) => handleRefresh(e, link.id)}
+                  disabled={refreshingId === link.id}
+                  className="text-muted-foreground hover:text-foreground transition-colors p-0.5 rounded hover:bg-muted"
+                  title="Refresh Jira status"
+                >
+                  <RefreshCw className={`size-2.5 ${refreshingId === link.id ? 'animate-spin' : ''}`} />
+                </button>
+              </div>
+            ))}
           </div>
         )}
 
