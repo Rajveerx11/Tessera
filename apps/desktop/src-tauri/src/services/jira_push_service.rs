@@ -6,7 +6,7 @@ use sqlx::SqlitePool;
 use std::fmt::Write;
 
 use crate::error::AppResult;
-use crate::providers::trackers::NewIssue;
+use crate::providers::trackers::{IssueTracker, NewIssue};
 use crate::repositories::external_link_repo::{self, ExternalLinkRow, ExternalLinkUpsert};
 use crate::repositories::tracker_config_repo;
 use crate::services::tracker_config_service::build_tracker_client;
@@ -73,8 +73,40 @@ struct TestCaseItem {
     priority: Option<String>,
 }
 
+/// Create a Jira issue for `(artifact_id, item_ref)` — or, when a link already
+/// exists, return the existing key/url instead of creating a duplicate. This
+/// makes push idempotent: re-pushing a linked artifact is a per-item no-op
+/// rather than orphaning the prior issue with a fresh one.
+async fn create_or_get_link(
+    pool: &SqlitePool,
+    tracker: &dyn IssueTracker,
+    artifact_id: &str,
+    item_ref: &str,
+    new_issue: NewIssue,
+) -> AppResult<(String, String)> {
+    if let Some(existing) =
+        external_link_repo::fetch_for_item(pool, artifact_id, "jira", item_ref).await?
+    {
+        return Ok((existing.issue_key, existing.issue_url));
+    }
+    let created = tracker.create_issue(new_issue).await?;
+    external_link_repo::upsert(
+        pool,
+        ExternalLinkUpsert {
+            artifact_id: artifact_id.to_string(),
+            tracker: "jira".to_string(),
+            item_ref: item_ref.to_string(),
+            issue_key: created.key.clone(),
+            issue_url: created.url.clone(),
+            issue_type: Some(created.issue_type),
+            last_status: Some(created.status),
+        },
+    )
+    .await?;
+    Ok((created.key, created.url))
+}
+
 /// Push an artifact to Jira.
-#[allow(clippy::too_many_lines)]
 pub async fn push_artifact(
     pool: &SqlitePool,
     crypto: &CryptoKey,
@@ -101,23 +133,10 @@ pub async fn push_artifact(
                 parent_key: None,
             };
 
-            let created = tracker.create_issue(new_issue).await?;
-            external_link_repo::upsert(
-                pool,
-                ExternalLinkUpsert {
-                    artifact_id: artifact.id.clone(),
-                    tracker: "jira".to_string(),
-                    item_ref: String::new(),
-                    issue_key: created.key.clone(),
-                    issue_url: created.url.clone(),
-                    issue_type: Some(created.issue_type.clone()),
-                    last_status: Some(created.status.clone()),
-                },
-            )
-            .await?;
-
-            keys.push(created.key);
-            urls.push(created.url);
+            let (key, url) =
+                create_or_get_link(pool, tracker.as_ref(), &artifact.id, "", new_issue).await?;
+            keys.push(key);
+            urls.push(url);
         }
         crate::repositories::artifact_repo::ArtifactType::TestCases => {
             // Push individual test cases
@@ -166,23 +185,11 @@ pub async fn push_artifact(
                     parent_key: parent_epic_key.clone(),
                 };
 
-                let created = tracker.create_issue(new_issue).await?;
-                external_link_repo::upsert(
-                    pool,
-                    ExternalLinkUpsert {
-                        artifact_id: artifact.id.clone(),
-                        tracker: "jira".to_string(),
-                        item_ref: case.id.clone(),
-                        issue_key: created.key.clone(),
-                        issue_url: created.url.clone(),
-                        issue_type: Some(created.issue_type.clone()),
-                        last_status: Some(created.status.clone()),
-                    },
-                )
-                .await?;
-
-                keys.push(created.key);
-                urls.push(created.url);
+                let (key, url) =
+                    create_or_get_link(pool, tracker.as_ref(), &artifact.id, &case.id, new_issue)
+                        .await?;
+                keys.push(key);
+                urls.push(url);
             }
         }
         _ => {
@@ -197,23 +204,10 @@ pub async fn push_artifact(
                 parent_key: None,
             };
 
-            let created = tracker.create_issue(new_issue).await?;
-            external_link_repo::upsert(
-                pool,
-                ExternalLinkUpsert {
-                    artifact_id: artifact.id.clone(),
-                    tracker: "jira".to_string(),
-                    item_ref: String::new(),
-                    issue_key: created.key.clone(),
-                    issue_url: created.url.clone(),
-                    issue_type: Some(created.issue_type.clone()),
-                    last_status: Some(created.status.clone()),
-                },
-            )
-            .await?;
-
-            keys.push(created.key);
-            urls.push(created.url);
+            let (key, url) =
+                create_or_get_link(pool, tracker.as_ref(), &artifact.id, "", new_issue).await?;
+            keys.push(key);
+            urls.push(url);
         }
     }
 

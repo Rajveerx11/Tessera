@@ -163,7 +163,7 @@ export function JiraPushDialog({ artifactId, onClose }: Props) {
                     Test-case artifacts create one issue per case; other artifacts create a single issue.
                   </p>
                   {alreadyLinked && (
-                    <p>Pushing again updates the existing link(s) rather than creating duplicates.</p>
+                    <p>Items already linked to Jira are skipped, so re-pushing never creates duplicates.</p>
                   )}
                 </div>
               </div>
