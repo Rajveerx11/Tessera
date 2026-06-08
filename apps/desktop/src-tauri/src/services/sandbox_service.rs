@@ -472,10 +472,9 @@ fn fold_sandbox_results(
                 };
                 (TestCaseResultStatus::Fail, message)
             } else {
-                (
-                    TestCaseResultStatus::Pass,
-                    format!("All {} assertions passed.", group.len()),
-                )
+                let n = group.len();
+                let noun = if n == 1 { "assertion" } else { "assertions" };
+                (TestCaseResultStatus::Pass, format!("All {n} {noun} passed."))
             };
             (case_id.to_string(), status, actual)
         })
@@ -1076,7 +1075,8 @@ mod tests {
         let (a_id, a_status, a_actual) = &folded[0];
         assert_eq!(a_id, "TC-A");
         assert_eq!(*a_status, TestCaseResultStatus::Pass);
-        assert_eq!(a_actual, "All 1 assertions passed.");
+        // Singular noun when exactly one assertion passed.
+        assert_eq!(a_actual, "All 1 assertion passed.");
 
         let (b_id, b_status, b_actual) = &folded[1];
         assert_eq!(b_id, "TC-B");

@@ -5,6 +5,7 @@ import {
   buildResultMap,
   type CellState,
   createDebouncer,
+  type Debouncer,
   DEFAULT_CELL,
   RESULT_OPTIONS,
   toUpsertInput,
@@ -51,7 +52,10 @@ export function TestCaseTable({ artifactId, data }: { artifactId: string; data: 
   // burst of edits composes off the latest state without stale closures.
   const resultsRef = useRef<Record<string, CellState>>({});
   // One debouncer per case id (created lazily on first edit).
-  const saversRef = useRef<Map<string, (input: UpsertTestCaseResultInput) => void>>(new Map());
+  const saversRef = useRef<Map<string, Debouncer<[UpsertTestCaseResultInput]>>>(new Map());
+  // The artifact a save belongs to — guards against a stale in-flight save
+  // surfacing its error on a different artifact opened mid-flight.
+  const currentArtifactRef = useRef(artifactId);
 
   const commit = useCallback((next: Record<string, CellState>) => {
     resultsRef.current = next;
@@ -61,8 +65,15 @@ export function TestCaseTable({ artifactId, data }: { artifactId: string; data: 
   // (Re)load the sidecar whenever the open artifact changes.
   useEffect(() => {
     let cancelled = false;
+    currentArtifactRef.current = artifactId;
+    // The savers Map identity is stable for the component's lifetime, so
+    // capturing it here is safe to reuse in the cleanup closure.
+    const savers = saversRef.current;
     commit({});
-    saversRef.current.clear();
+    // Drop any pending per-case saves from the previous artifact so their
+    // timers cannot fire against the new one, then start fresh.
+    savers.forEach((saver) => saver.cancel());
+    savers.clear();
     void (async () => {
       try {
         const rows = await testCaseResults.listTestCaseResults(artifactId);
@@ -75,12 +86,15 @@ export function TestCaseTable({ artifactId, data }: { artifactId: string; data: 
     })();
     return () => {
       cancelled = true;
+      savers.forEach((saver) => saver.cancel());
     };
   }, [artifactId, commit]);
 
   const saveCell = useCallback((input: UpsertTestCaseResultInput) => {
     void testCaseResults.upsertTestCaseResult(input).catch((err: unknown) => {
-      setError(getErrorMessage(err));
+      // Only surface the error if its artifact is still the one on screen —
+      // an in-flight save from a since-closed artifact must stay silent.
+      if (input.artifactId === currentArtifactRef.current) setError(getErrorMessage(err));
     });
   }, []);
 

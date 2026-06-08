@@ -31,10 +31,12 @@ CREATE TABLE test_case_results (
     case_id       TEXT NOT NULL,              -- the TC-… id from structured_data
     actual_output TEXT,
     -- pass | fail | blocked | not_run
-    result        TEXT NOT NULL DEFAULT 'not_run',
+    result        TEXT NOT NULL DEFAULT 'not_run'
+                  CHECK (result IN ('pass', 'fail', 'blocked', 'not_run')),
     remarks       TEXT,
     -- manual | sandbox
-    source        TEXT NOT NULL DEFAULT 'manual',
+    source        TEXT NOT NULL DEFAULT 'manual'
+                  CHECK (source IN ('manual', 'sandbox')),
     run_id        TEXT,                        -- nullable FK to test_runs for sandbox rows
     created_at    TEXT NOT NULL,
     updated_at    TEXT NOT NULL,

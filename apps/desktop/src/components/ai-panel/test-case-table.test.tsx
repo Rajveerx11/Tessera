@@ -107,6 +107,15 @@ describe('createDebouncer', () => {
     expect(fn).toHaveBeenCalledTimes(1);
     expect(fn).toHaveBeenCalledWith('c');
   });
+
+  it('cancel() drops a pending invocation so a stale save never fires', () => {
+    const fn = vi.fn();
+    const debounced = createDebouncer(500, fn);
+    debounced('x');
+    debounced.cancel();
+    vi.advanceTimersByTime(500);
+    expect(fn).not.toHaveBeenCalled();
+  });
 });
 
 describe('TestCaseTable render', () => {

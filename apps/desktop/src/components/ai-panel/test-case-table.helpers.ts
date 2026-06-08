@@ -69,20 +69,37 @@ export function toUpsertInput(
 }
 
 /**
+ * A debouncer call surface: invoke it to (re)arm the trailing-edge timer,
+ * or `.cancel()` to drop a pending invocation without firing it.
+ */
+export type Debouncer<A extends unknown[]> = ((...args: A) => void) & { cancel: () => void };
+
+/**
  * Trailing-edge debouncer: rapid calls collapse to a single invocation
  * `delay` ms after the last call. One instance is kept per case so an
- * edit to one row never cancels another row's pending save.
+ * edit to one row never cancels another row's pending save. `.cancel()`
+ * clears a pending timer — used when the open artifact changes so a stale
+ * save can never fire against (or surface an error on) the new artifact.
  */
 export function createDebouncer<A extends unknown[]>(
   delay: number,
   fn: (...args: A) => void,
-): (...args: A) => void {
+): Debouncer<A> {
   let timer: ReturnType<typeof setTimeout> | null = null;
-  return (...args: A) => {
-    if (timer !== null) clearTimeout(timer);
-    timer = setTimeout(() => {
+  const clear = () => {
+    if (timer !== null) {
+      clearTimeout(timer);
       timer = null;
-      fn(...args);
-    }, delay);
+    }
   };
+  return Object.assign(
+    (...args: A) => {
+      clear();
+      timer = setTimeout(() => {
+        timer = null;
+        fn(...args);
+      }, delay);
+    },
+    { cancel: clear },
+  );
 }
