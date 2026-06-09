@@ -1647,13 +1647,47 @@ fn sanitize_id_value(raw: &str) -> String {
 /// same JSON-Schema engine that guards the final tool output, so the
 /// regex dialect always matches. Compile failures are non-fatal — the
 /// authoritative validation downstream still runs.
+///
+/// Compiling a validator is comparatively expensive and the set of id
+/// patterns (`TC-`/`DEF-`/`BUG-`) is tiny and fixed, so each compiled
+/// validator is cached by pattern and reused across calls.
 fn value_matches_pattern(value: &str, pattern: &str) -> bool {
-    let schema = serde_json::json!({ "type": "string", "pattern": pattern });
-    match jsonschema::JSONSchema::compile(&schema) {
-        Ok(validator) => validator.is_valid(&JsonValue::String(value.to_string())),
-        // Non-fatal: the authoritative validation downstream still runs.
-        Err(_) => true,
+    static VALIDATORS: std::sync::OnceLock<
+        std::sync::Mutex<std::collections::HashMap<String, jsonschema::JSONSchema>>,
+    > = std::sync::OnceLock::new();
+
+    let candidate = JsonValue::String(value.to_string());
+    let cache = VALIDATORS.get_or_init(|| std::sync::Mutex::new(std::collections::HashMap::new()));
+
+    let Ok(mut validators) = cache.lock() else {
+        // Poisoned mutex: fall back to a one-off compile so validation still runs.
+        return match compile_pattern_validator(pattern) {
+            Some(validator) => validator.is_valid(&candidate),
+            None => true,
+        };
+    };
+
+    if let Some(validator) = validators.get(pattern) {
+        return validator.is_valid(&candidate);
     }
+
+    match compile_pattern_validator(pattern) {
+        Some(validator) => {
+            let matches = validator.is_valid(&candidate);
+            validators.insert(pattern.to_string(), validator);
+            matches
+        }
+        // Non-fatal: the authoritative validation downstream still runs.
+        None => true,
+    }
+}
+
+/// Compile a `{ "type": "string", "pattern": ... }` validator, reusing the
+/// same JSON-Schema engine as the final tool-output check. Returns `None`
+/// on compile failure, which callers treat as non-fatal.
+fn compile_pattern_validator(pattern: &str) -> Option<jsonschema::JSONSchema> {
+    let schema = serde_json::json!({ "type": "string", "pattern": pattern });
+    jsonschema::JSONSchema::compile(&schema).ok()
 }
 
 fn normalize_value_recursively(data: &mut JsonValue, schema: &JsonValue) {
