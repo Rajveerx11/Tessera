@@ -42,6 +42,13 @@ pub struct ProviderConfigRow {
 }
 
 /// Insert or update a provider config (upsert on `(user_id, provider)` unique constraint).
+///
+/// The active connection is a **singleton**: when `row.is_active` is true, every
+/// other config for the user is deactivated in the same transaction before the
+/// target row is written as active. This guarantees at most one active row at all
+/// times, so the manual pick wins and there is no silent first-row fallback. When
+/// `row.is_active` is false, the row is upserted as inactive without touching the
+/// others.
 pub async fn upsert(pool: &SqlitePool, row: ProviderConfigUpsert) -> AppResult<String> {
     if row.provider.trim().is_empty() {
         return Err(AppError::InvalidInput("provider is empty".into()));
@@ -50,14 +57,28 @@ pub async fn upsert(pool: &SqlitePool, row: ProviderConfigUpsert) -> AppResult<S
     let now = Utc::now().to_rfc3339();
     let is_active_int: i32 = i32::from(row.is_active);
 
+    let mut tx = pool.begin().await?;
+
+    // Singleton invariant: activating one connection deactivates all others.
+    if row.is_active {
+        sqlx::query(
+            "UPDATE user_provider_configs SET is_active = 0, updated_at = ? \
+             WHERE user_id = ?",
+        )
+        .bind(&now)
+        .bind(DEFAULT_USER_ID)
+        .execute(&mut *tx)
+        .await?;
+    }
+
     let existing: Option<(String,)> =
         sqlx::query_as("SELECT id FROM user_provider_configs WHERE user_id = ? AND provider = ?")
             .bind(DEFAULT_USER_ID)
             .bind(row.provider.trim())
-            .fetch_optional(pool)
+            .fetch_optional(&mut *tx)
             .await?;
 
-    if let Some((id,)) = existing {
+    let id = if let Some((id,)) = existing {
         sqlx::query(
             "UPDATE user_provider_configs SET \
              api_key_encrypted = ?, api_key_nonce = ?, base_url = ?, \
@@ -71,9 +92,9 @@ pub async fn upsert(pool: &SqlitePool, row: ProviderConfigUpsert) -> AppResult<S
         .bind(is_active_int)
         .bind(&now)
         .bind(&id)
-        .execute(pool)
+        .execute(&mut *tx)
         .await?;
-        Ok(id)
+        id
     } else {
         let id = Uuid::new_v4().to_string();
         sqlx::query(
@@ -92,10 +113,13 @@ pub async fn upsert(pool: &SqlitePool, row: ProviderConfigUpsert) -> AppResult<S
         .bind(is_active_int)
         .bind(&now)
         .bind(&now)
-        .execute(pool)
+        .execute(&mut *tx)
         .await?;
-        Ok(id)
-    }
+        id
+    };
+
+    tx.commit().await?;
+    Ok(id)
 }
 
 pub async fn fetch(pool: &SqlitePool, id: &str) -> AppResult<ProviderConfigRow> {
@@ -381,6 +405,54 @@ mod tests {
         delete(&pool, &id).await.expect("delete");
         let err = fetch(&pool, &id).await.expect_err("must 404");
         assert_eq!(err.code(), "NOT_FOUND");
+
+        pool.close().await;
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[tokio::test]
+    async fn upsert_active_is_singleton() {
+        let (pool, path) = seed_pool().await;
+
+        // Activate provider A.
+        upsert(
+            &pool,
+            ProviderConfigUpsert {
+                provider: "ollama".into(),
+                api_key_encrypted: None,
+                api_key_nonce: None,
+                base_url: None,
+                default_model: None,
+                is_active: true,
+            },
+        )
+        .await
+        .expect("activate ollama");
+
+        // Activate provider B — must deactivate A.
+        upsert(
+            &pool,
+            ProviderConfigUpsert {
+                provider: "openai".into(),
+                api_key_encrypted: None,
+                api_key_nonce: None,
+                base_url: None,
+                default_model: None,
+                is_active: true,
+            },
+        )
+        .await
+        .expect("activate openai");
+
+        let list = list_for_user(&pool, DEFAULT_USER_ID, 100, 0)
+            .await
+            .expect("list");
+        let active: Vec<&str> = list
+            .iter()
+            .filter(|r| r.is_active)
+            .map(|r| r.provider.as_str())
+            .collect();
+        assert_eq!(active, vec!["openai"], "exactly one active: the latest pick");
 
         pool.close().await;
         let _ = std::fs::remove_file(&path);

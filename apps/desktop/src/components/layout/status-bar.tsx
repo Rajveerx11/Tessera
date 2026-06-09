@@ -19,7 +19,6 @@ export function StatusBar() {
   const treeError = useWorkspaceStore((s) => s.treeError);
   const analysis = useWorkspaceStore((s) => s.analysis);
 
-  console.log("DEBUG: StatusBar rendering, project is:", project);
   return (
     <footer className="flex h-7 shrink-0 items-center justify-between gap-2 border-t border-border bg-surface-3 px-3 font-mono text-[11px] text-muted-foreground">
       <div className="flex items-center gap-4">
@@ -170,10 +169,10 @@ function ProviderSwitcher() {
         aria-haspopup="listbox"
         aria-expanded={open}
         className="text-muted-foreground hover:text-foreground hover:bg-surface-2 flex items-center gap-1 rounded px-1.5 py-0.5 text-[11px] transition-colors"
-        title="Switch active provider"
+        title="Switch active connection"
       >
         <Cpu className="size-3" />
-        <span className="text-foreground font-medium">{display?.provider ?? 'none'}</span>
+        <span className="text-foreground font-medium">{display?.provider ?? 'Select connection'}</span>
         {display?.defaultModel !== undefined && display?.defaultModel !== null ? (
           <span>· {display.defaultModel}</span>
         ) : null}

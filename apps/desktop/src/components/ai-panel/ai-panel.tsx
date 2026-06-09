@@ -30,6 +30,7 @@ import {
 import { extractStreamingPreview } from '@/lib/partial-json';
 import { pickActiveProvider } from '@/lib/provider';
 import { useAiStore } from '@/stores/ai-store';
+import { useUiStore } from '@/stores/ui-store';
 import { useWorkspaceStore } from '@/stores/workspace-store';
 
 import { ArtifactDetailDrawer } from '@/components/ai-panel/artifact-detail-drawer';
@@ -65,8 +66,10 @@ export function AiPanel() {
   const loadingArtifacts = useAiStore((s) => s.loadingArtifacts);
   const artifactsError = useAiStore((s) => s.artifactsError);
   const activeProvider = useAiStore((s) => s.activeProvider);
+  const providerList = useAiStore((s) => s.providers);
   const setActiveProvider = useAiStore((s) => s.setActiveProvider);
   const setProviders = useAiStore((s) => s.setProviders);
+  const setSettingsOpen = useUiStore((s) => s.setSettingsOpen);
   const setGeneration = useAiStore((s) => s.setGeneration);
   const setArtifacts = useAiStore((s) => s.setArtifacts);
   const upsertArtifact = useAiStore((s) => s.upsertArtifact);
@@ -404,9 +407,26 @@ export function AiPanel() {
             Provider
           </p>
           {activeProvider === null ? (
-            <p className="text-xs text-muted-foreground">
-              None configured. Open Settings to add a provider.
-            </p>
+            providerList.length === 0 ? (
+              <p className="text-xs text-muted-foreground">
+                None configured. Open Settings to add a provider.
+              </p>
+            ) : (
+              <div className="space-y-1.5">
+                <p className="text-xs text-muted-foreground" role="alert">
+                  No connection selected. Pick one to generate.
+                </p>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setSettingsOpen(true)}
+                  className="h-7 text-[11px]"
+                >
+                  Select a connection
+                </Button>
+              </div>
+            )
           ) : (
             <p className="text-xs">
               <span className="font-medium text-foreground">{activeProvider.provider}</span>
