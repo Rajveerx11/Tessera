@@ -20,6 +20,8 @@ Tessera is a local-first AI testing IDE built as a Tauri desktop app. The React/
 
 Use TypeScript, React, ESLint, and Vitest conventions in frontend code. Prefer PascalCase for React components, camelCase for functions and variables, and kebab-case for route or asset filenames when applicable. Rust code should be formatted with `rustfmt`, pass `clippy`, and use snake_case for modules, functions, and fields. Preserve the existing backend layering: commands validate and delegate, services coordinate behavior, repositories own SQL, and providers isolate external APIs.
 
+The **active LLM connection is a singleton**: exactly one `user_provider_configs` row is `is_active` at a time, enforced transactionally in `provider_config_repo::upsert` (activating one provider deactivates the rest). The frontend honours the explicit pick and never falls back to an arbitrary first row — see [`plan/CONNECTION_SELECT.md`](plan/CONNECTION_SELECT.md).
+
 ## Testing Guidelines
 
 Frontend and shared package tests use Vitest and generally follow `*.test.ts` or colocated test naming. End-to-end coverage uses Playwright under `apps/desktop/e2e`. Rust unit tests are colocated with modules, with integration tests under `apps/desktop/src-tauri/tests`. Ollama integration tests are opt-in; set the required environment flags before running them. When changing schemas, prompts, provider payloads, or IPC contracts, add tests that cover malformed and model-specific edge cases.
@@ -27,6 +29,8 @@ Frontend and shared package tests use Vitest and generally follow `*.test.ts` or
 ## Commit & Pull Request Guidelines
 
 Git history uses concise Conventional Commit style, such as `fix: ...`, `feat: ...`, `docs: ...`, or scoped variants like `fix(sandbox): ...`. PRs should include a short problem statement, the important implementation details, verification commands run, and screenshots or recordings for visible UI changes. Call out changes that affect model providers, sandbox behavior, persistence, or configuration.
+
+`master` is squash-only and linear, gated by the `Protect master` ruleset. Six CI jobs must pass before the merge button unlocks — `conflict-marker-check`, `lint-and-test`, `frontend-checks`, `server-check`, `e2e-test`, `sandbox-runner-test`; `integration-test` is advisory. Run `pnpm guard:pre-push` locally first. See [`docs/AGENT_WORKFLOW.md`](docs/AGENT_WORKFLOW.md) and [`BRANCH_PROTECTION.md`](BRANCH_PROTECTION.md).
 
 ## Security & Configuration Tips
 

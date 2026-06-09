@@ -122,16 +122,24 @@ in the template — do **not** delete the template.
 
 ### 3.5 Wait for CI + reviewer
 
-CI matrix runs the same checks GitHub will require for merge:
+CI runs these jobs. The six **required** ones are enforced by the `master`
+ruleset — the merge button stays greyed out until all six are green:
 
-| Job                          | What it asserts                                         |
-|-----------------------------|---------------------------------------------------------|
-| `conflict-marker-check`     | No `<<<<<<<` / `=======` / `>>>>>>>` anywhere           |
-| `lint`                      | ESLint clean across the monorepo                        |
-| `typecheck`                 | TypeScript clean across the monorepo                    |
-| `unit-test`                 | Vitest + Rust unit tests pass in CI                     |
-| `integration-test (ubuntu)` | Live Ollama suite passes (chat + embeddings + golden)   |
-| `release-build`             | `tauri build` succeeds on Windows / macOS / Linux       |
+| Job                          | Required? | What it asserts                                                  |
+|-----------------------------|:---------:|-----------------------------------------------------------------|
+| `conflict-marker-check`     | ✅        | No `<<<<<<<` / `=======` / `>>>>>>>` anywhere                   |
+| `lint-and-test`             | ✅        | ESLint + clippy clean, then Vitest + Rust unit tests pass       |
+| `frontend-checks`           | ✅        | TypeScript clean, then the production Vite build succeeds        |
+| `server-check`              | ✅        | `apps/server` clippy + tests pass                               |
+| `e2e-test`                  | ✅        | Playwright renderer suite passes (mocked Tauri IPC)             |
+| `sandbox-runner-test`       | ✅        | Docker sandbox builds + the gated runner test passes            |
+| `integration-test (ubuntu)` | advisory  | Live Ollama suite — `continue-on-error`, never blocks merge      |
+
+> `lint-and-test` merges the former `lint` + `unit-test` jobs, and
+> `frontend-checks` merges the former `typecheck` + `build-check`, to avoid
+> re-paying an identical toolchain setup twice (see
+> [`../plan/CI_JOB_CONSOLIDATION.md`](../plan/CI_JOB_CONSOLIDATION.md)). The
+> cross-platform `tauri build` runs in `release.yml` on tag pushes, not on PRs.
 
 A `CODEOWNERS` rule auto-requests review from the matching path
 owner. Address every comment in the PR; do not push fixes as new
@@ -139,15 +147,19 @@ branches.
 
 ### 3.6 Merge
 
-Use **Squash and merge** only. The merge button is gated by branch
-protection — it will be greyed out until:
+Use **Squash and merge** only. The merge button is gated by the `master`
+ruleset — it will be greyed out until:
 
-- 1 approving review (CODEOWNERS-matched if the path requires it)
-- All required checks green
-- Branch is up to date with master
-- All conversations resolved
+- All six required checks green (see the table in 3.5)
+- Linear history preserved (squash-only; no merge commits)
 
-If branch protection requires the branch to be up to date, do:
+The ruleset currently requires **0 approving reviews** and does **not** force
+the branch to be up to date before merge (`strict` is off), so a review is
+encouraged but not a hard gate. Raise `required_approving_review_count` and flip
+on the strict policy in the ruleset when the team grows — see
+[`../BRANCH_PROTECTION.md`](../BRANCH_PROTECTION.md).
+
+If you choose to bring the branch up to date with master first, do:
 
 ```bash
 git fetch origin
