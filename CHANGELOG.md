@@ -10,6 +10,30 @@ commit messages and [Semantic Versioning](https://semver.org/) for releases.
 
 ## [Unreleased]
 
+### 🚀 Added (merged to master 2026-06-09)
+
+- **Explicit connection selection** (#66) — the active LLM connection is now a
+  singleton enforced at the database layer: activating one provider deactivates
+  every other in a single transaction (`provider_config_repo::upsert`), so the
+  manual pick in the status-bar switcher is authoritative. The frontend dropped
+  its silent first-row fallback (`pickActiveProvider` returns `null` when nothing
+  is selected) and the AI panel blocks generation with a "Select a connection"
+  prompt instead of guessing. See [`plan/CONNECTION_SELECT.md`](plan/CONNECTION_SELECT.md).
+
+### 🔧 Changed — CI/CD (merged to master 2026-06-09)
+
+- **DRY Tauri system deps** (#67) — the duplicated WebKitGTK/GTK `apt-get` block
+  (previously copy-pasted across 4 CI jobs + the release bundle) is now a single
+  composite action, `.github/actions/linux-tauri-deps`. The release workflow also
+  caches the pnpm store.
+- **CI job consolidation 9 → 7** (#68) — jobs sharing an identical toolchain setup
+  were merged so CI stops re-paying the same checkout + install + cache: `lint` +
+  `unit-test` → **`lint-and-test`**, `typecheck` + `build-check` → **`frontend-checks`**.
+  The `master` ruleset now enforces 6 required status checks (`conflict-marker-check`,
+  `frontend-checks`, `lint-and-test`, `server-check`, `e2e-test`,
+  `sandbox-runner-test`); `integration-test (ubuntu)` stays advisory (`continue-on-error`).
+  See [`plan/CI_JOB_CONSOLIDATION.md`](plan/CI_JOB_CONSOLIDATION.md).
+
 ### 🚀 Added (merged to master 2026-06-05/06)
 
 - **Tessera Boards** (#33, hardened in #40) — Jira-style project management inside
@@ -22,7 +46,7 @@ commit messages and [Semantic Versioning](https://semver.org/) for releases.
   forced single-tool `tool_choice` on OpenAI-compatible payloads, JS-string
   normalization (`\'` escapes) in the salvage path, actionable API error messages
   (Ollama OOM hint), narrower pseudo-tool-call detection.
-- **Playwright E2E in CI** — e2e suite runs as a CI gate alongside the 5 existing gates.
+- **Playwright E2E in CI** — e2e suite runs as a dedicated CI gate (`e2e-test`).
 
 ### 📋 Planned
 

@@ -33,7 +33,7 @@ project) · static by default (analysis never executes your code) · structured
 | LLM providers | Ollama (default), OpenAI, OpenRouter, Anthropic, Google Gemini |
 | Embeddings | Ollama `nomic-embed-text` (768-dim) |
 | Test sandbox | Docker (opt-in) — vitest + istanbul |
-| CI/CD | GitHub Actions (6-gate CI + cross-platform releases) |
+| CI/CD | GitHub Actions (7-job CI, 6 required checks + cross-platform releases) |
 | Observability | `tracing` (Rust) · Sentry (opt-in) |
 
 ---
@@ -140,7 +140,7 @@ tessera/
 - ✅ **AES-256-GCM** encrypted API key storage at rest
 - ✅ **Command palette** with 13 commands and full keyboard nav
 - ✅ **Cross-platform releases**: Windows, macOS, Linux via `tauri-action`
-- ✅ **339+ tests** and 6-gate CI
+- ✅ **339+ tests** and a 7-job CI (6 required status checks)
 
 ### Sandbox Test Runner (shipped 2026-06-05)
 - ✅ **Closed-loop test execution**: Generate test cases → execute in Docker → see pass/fail + line coverage

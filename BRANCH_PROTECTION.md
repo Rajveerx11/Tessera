@@ -1,96 +1,103 @@
 # Branch protection — admin runbook
 
-Branch protection rules can only be flipped by a repo admin in the
-GitHub UI. Apply these settings exactly once after this PR lands; the
-rest of the workflow (hooks, CI, CODEOWNERS, auto-merge) is already
-wired up in the repo.
+`master` is protected by a **repository ruleset** named **`Protect master`**
+(id `17259460`), not by a classic branch-protection rule. This is the canonical
+"how master stays green" reference for admins.
 
-> **Why this exists.** Master has been broken three times by direct
-> merges and conflict-marker commits. This document is the canonical
-> "how master stays green" reference for admins.
+> **Why this exists.** Master has been broken by direct merges and
+> conflict-marker commits. The ruleset makes those impossible: PR-only, squash-only,
+> linear history, and a set of required status checks that must pass before the
+> merge button unlocks.
 
 ---
 
-## 1. Apply branch protection on `master`
+## 1. Current ruleset state
 
-GitHub UI path: **Settings → Branches → Branch protection rules → Add rule**.
+GitHub UI path: **Settings → Rules → Rulesets → Protect master**.
+Inspect from the CLI:
 
-- **Branch name pattern**: `master`
+```bash
+gh api repos/Rajveerx11/Tessera/rulesets/17259460 \
+  --jq '{name, enforcement, conditions, rules: [.rules[].type]}'
+```
 
-Tick every box below:
+The active rules are:
 
-### Required pull-request review
-
-- [x] Require a pull request before merging
-- [x] Require approvals — **set to 1** (raise to 2 when the team
-      crosses 5 people)
-- [x] Dismiss stale pull request approvals when new commits are pushed
-- [x] Require review from Code Owners
-- [x] Require approval of the most recent reviewable push
+| Rule | Effect |
+|------|--------|
+| `deletion` | `master` cannot be deleted |
+| `non_fast_forward` | linear history only — no force-push, no merge commits |
+| `pull_request` | PR required; **squash is the only allowed merge method**; `required_approving_review_count: 0` |
+| `required_status_checks` | the six checks below must pass; `strict` policy **off** |
 
 ### Required status checks
 
-- [x] Require status checks to pass before merging
-- [x] Require branches to be up to date before merging
-
-Then add **all** of these checks as required (type the names exactly —
-GitHub will show them in the dropdown after the first CI run):
+These six job names must report success before merge (type them exactly — they
+appear in the UI dropdown after the first CI run on a branch):
 
 - `conflict-marker-check`
-- `lint`
-- `typecheck`
-- `unit-test`
-- `integration-test (ubuntu)`
-- `release-build`
+- `frontend-checks`
+- `lint-and-test`
+- `server-check`
+- `e2e-test`
+- `sandbox-runner-test`
 
-If a check name does not appear, run CI once on a throwaway PR so
-GitHub indexes the job names, then refresh this page.
-
-### History + conversations
-
-- [x] Require conversation resolution before merging
-- [x] Require linear history
-- [x] Require deployments to succeed before merging — leave **off**
-      unless we wire a staging deploy
-
-### Pushes
-
-- [x] Restrict who can push to matching branches — leave the allow-list
-      **empty** so no human bypass is possible
-- [x] Do not allow bypassing the above settings (admins included)
-- [ ] Allow force pushes — **OFF**
-- [ ] Allow deletions — **OFF**
-
-Save the rule.
+`integration-test (ubuntu)` is **intentionally excluded** — it is
+`continue-on-error` (live-Ollama smoke test, flaky on free runners) and must
+never block a merge. See [`docs/AGENT_WORKFLOW.md`](docs/AGENT_WORKFLOW.md) §3.5
+for what each job asserts and [`plan/CI_JOB_CONSOLIDATION.md`](plan/CI_JOB_CONSOLIDATION.md)
+for why `lint-and-test` / `frontend-checks` are merged jobs.
 
 ---
 
-## 2. Repository settings
+## 2. Editing the ruleset
 
-GitHub UI path: **Settings → General**.
+Prefer the UI for one-off toggles. For reproducible changes, `PUT` the full
+ruleset body (the API replaces the whole `rules` array — re-send every rule, not
+just the changed one):
 
-Under **Pull Requests**:
+```bash
+# 1. fetch current state first, diff your change against it
+gh api repos/Rajveerx11/Tessera/rulesets/17259460 > ruleset.json
+# 2. edit ruleset.json, then PUT it back
+gh api --method PUT repos/Rajveerx11/Tessera/rulesets/17259460 --input ruleset.json
+```
 
-- [x] Allow squash merging — set commit message to **"Pull request
-      title and description"**
+**Common changes as the team grows:**
+
+- **Require reviews** — set `pull_request.parameters.required_approving_review_count`
+  to `1` (raise to `2` past ~5 people); optionally enable
+  `require_code_owner_review` and `required_review_thread_resolution`.
+- **Require up-to-date branches** — set
+  `required_status_checks.parameters.strict_required_status_checks_policy` to
+  `true`. (Off today to avoid serialized update-merge-rerun churn on a
+  solo-maintainer repo.)
+- **Add a new required check** — append `{ "context": "<job-name>" }` to
+  `required_status_checks.parameters.required_status_checks`. The context string
+  must match the job's `name:` in `ci.yml` exactly, or the check waits forever.
+
+If a check context never appears in the UI dropdown, run CI once on a throwaway
+PR so GitHub indexes the job name, then refresh.
+
+---
+
+## 3. Repository settings (one-time)
+
+GitHub UI path: **Settings → General → Pull Requests**:
+
+- [x] Allow squash merging — commit message **"Pull request title and description"**
 - [ ] Allow merge commits — **OFF** (linear history)
 - [ ] Allow rebase merging — **OFF** (squash is the only way in)
 - [x] Always suggest updating pull request branches
 - [x] Automatically delete head branches
 
-Under **Actions → General**:
+**Settings → Actions → General**:
 
 - [x] Allow GitHub Actions to create and approve pull requests
-      (required for the `auto-merge` workflow's `gh pr merge --auto`
-      to work on its own PRs — keep off if not using Dependabot)
+      (required for the `auto-merge` workflow's `gh pr merge --auto`)
 
----
-
-## 3. Secrets / variables
-
-No new secrets are required for the gating itself. The release
-workflow already uses `GITHUB_TOKEN` and `TAURI_*` signing secrets;
-nothing in this rollout touches them.
+No new secrets are required for the gating itself. `release.yml` already uses
+`GITHUB_TOKEN` and `TAURI_*` signing secrets; nothing here touches them.
 
 ---
 
@@ -99,17 +106,17 @@ nothing in this rollout touches them.
 Open a one-line throwaway PR and confirm:
 
 - The PR template auto-fills.
-- A reviewer is auto-requested via CODEOWNERS.
-- The "Merge" button is greyed out until reviews + checks are green.
-- Direct `git push origin master` from the CLI is rejected with
-  `protected branch hook declined`.
+- The "Merge" button is greyed out until the six required checks are green.
+- Direct `git push origin master` from the CLI is rejected (non-fast-forward /
+  ruleset violation).
 
-If any of those four signals are missing, re-check the rule above.
+To prove the status-check gate actually bites, push a commit with a deliberately
+failing test and confirm the merge button stays locked until it is fixed.
 
 ---
 
 ## 5. Local hooks
 
 Per-developer hook setup is automatic on `pnpm install` and is a contributor
-concern, not an admin one — see [`CONTRIBUTING.md`](./CONTRIBUTING.md). Branch
-protection makes a `--no-verify` bypass useless anyway: the PR is still gated by CI.
+concern, not an admin one — see [`CONTRIBUTING.md`](./CONTRIBUTING.md). The
+ruleset makes a `--no-verify` bypass useless anyway: the PR is still gated by CI.
