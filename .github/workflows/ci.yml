@@ -273,6 +273,11 @@ jobs:
     # typecheck, and lint (all in lint-and-test / frontend-checks) are the
     # correctness gates.
     continue-on-error: true
+    # Gate the expensive Ollama job behind the cheap correctness checks so a
+    # lint/type/test failure fails fast without spinning up the model. Depending
+    # on `frontend-checks` (not just typecheck) now also waits on the Vite build
+    # — an intentional, benign consequence of merging typecheck + build-check:
+    # there is no point pulling a 3B model if the renderer doesn't even build.
     needs:
       - lint-and-test
       - frontend-checks
