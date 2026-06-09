@@ -43,14 +43,16 @@ jobs:
             exit 1
           fi
 
-  lint:
-    name: lint
-    # Ubuntu-only by design. Lint output is platform-independent and
-    # the Tauri matrix already covers Windows + macOS on tag pushes
-    # (see release.yml). Running lint × 3 OS on every push burned
-    # ~13× the billed minutes for no extra signal.
+  lint-and-test:
+    name: lint-and-test
+    # Merged job (was `lint` + `unit-test`): eslint + clippy static gates,
+    # then the unit suite (`pnpm test` = Vitest + `cargo test --lib`). Both
+    # halves need the same setup — node + pnpm + Rust + Tauri system libs —
+    # so one job shares a single rust-cache restore and pnpm install instead
+    # of paying that setup twice across two parallel jobs. Ubuntu-only by
+    # design; release.yml covers the cross-OS bundle on tag pushes.
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v6
 
@@ -78,15 +80,30 @@ jobs:
       - name: Install workspace dependencies
         run: pnpm install --frozen-lockfile
 
+      # Static gates first so a style/lint break fails fast before the
+      # slower test compile + run.
       - name: Run workspace lint
         run: pnpm lint
 
       - name: Run cargo clippy
         run: cargo clippy --manifest-path apps/desktop/src-tauri/Cargo.toml --locked --all-targets --lib -- -D warnings
 
-  typecheck:
-    name: typecheck
-    # Ubuntu-only — TypeScript output is identical across runners.
+      # `if: always()` so a clippy failure above still runs the tests and
+      # surfaces their pass/fail — the merge into one job must not hide the
+      # unit-test signal behind a style break. clippy remains a hard gate:
+      # the job conclusion is still failure when clippy fails.
+      - name: Run unit tests
+        if: always()
+        run: pnpm test
+
+  frontend-checks:
+    name: frontend-checks
+    # Merged node-only job (was `typecheck` + `build-check`): TypeScript
+    # typecheck then the production Vite build. Neither needs Rust or the
+    # Tauri system libs, so they share one checkout + pnpm install instead
+    # of two. typecheck runs first; if it fails the build step is skipped
+    # (a type error almost always breaks the bundle too). Ubuntu-only — tsc
+    # and Rollup output are platform-independent.
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -107,70 +124,6 @@ jobs:
 
       - name: Run TypeScript typecheck
         run: pnpm typecheck
-
-  unit-test:
-    name: unit-test
-    # Ubuntu-only. Vitest + Rust unit tests do not exercise OS-
-    # specific code paths. The Tauri release workflow still builds
-    # full bundles on Windows + macOS when a tag is pushed, so the
-    # cross-platform contract is covered without paying for it on
-    # every push.
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    steps:
-      - uses: actions/checkout@v6
-
-      - name: Install Linux Tauri deps
-        uses: ./.github/actions/linux-tauri-deps
-
-      - uses: pnpm/action-setup@v6
-        with:
-          run_install: false
-
-      - uses: actions/setup-node@v5
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-          cache: pnpm
-          cache-dependency-path: pnpm-lock.yaml
-
-      - uses: dtolnay/rust-toolchain@stable
-
-      - uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: apps/desktop/src-tauri
-
-      - name: Install workspace dependencies
-        run: pnpm install --frozen-lockfile
-
-      - name: Run unit tests
-        run: pnpm test
-
-  build-check:
-    name: build-check
-    # Production Vite build of the renderer. typecheck and unit-test do
-    # not exercise Rollup: asset imports, dynamic-import splitting, and
-    # plugin config can all break the production bundle while tsc and
-    # Vitest stay green — which previously only surfaced when release.yml
-    # ran tauri-action on a tag push. Node-only (no Rust/Tauri compile),
-    # so the gate costs ~1-2 minutes. Verified locally: `vite build`
-    # ~30s on the current tree.
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    steps:
-      - uses: actions/checkout@v6
-
-      - uses: pnpm/action-setup@v6
-        with:
-          run_install: false
-
-      - uses: actions/setup-node@v5
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-          cache: pnpm
-          cache-dependency-path: pnpm-lock.yaml
-
-      - name: Install workspace dependencies
-        run: pnpm install --frozen-lockfile
 
       - name: Build production renderer bundle
         run: pnpm --filter @testing-ide/desktop run vite:build
@@ -321,13 +274,18 @@ jobs:
     # Smoke test against a live Ollama instance. Generation quality and
     # stream reliability depend on CI runner resources (2 vCPU, 7 GB
     # RAM) which are insufficient for deterministic 3B-model output.
-    # Failures here do not indicate code regressions — unit tests,
-    # typecheck, and lint are the correctness gates.
+    # Failures here do not indicate code regressions — the unit suite,
+    # typecheck, and lint (all in lint-and-test / frontend-checks) are the
+    # correctness gates.
     continue-on-error: true
+    # Gate the expensive Ollama job behind the cheap correctness checks so a
+    # lint/type/test failure fails fast without spinning up the model. Depending
+    # on `frontend-checks` (not just typecheck) now also waits on the Vite build
+    # — an intentional, benign consequence of merging typecheck + build-check:
+    # there is no point pulling a 3B model if the renderer doesn't even build.
     needs:
-      - lint
-      - typecheck
-      - unit-test
+      - lint-and-test
+      - frontend-checks
     # Worst case: golden test-cases probe retries 3× at 15 min per
     # attempt (~45 min) plus model pulls, warm-up, and the Rust suite.
     timeout-minutes: 90
