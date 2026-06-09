@@ -12,8 +12,10 @@ use crate::prompts::test_cases_v2;
 use crate::prompts::test_plan_v2;
 use crate::prompts::PromptContext;
 use crate::providers::factory::{self, ProviderConfig, ProviderKind};
+use crate::providers::llm::error::LlmError;
 use crate::providers::llm::{
-    approximate_token_count, Content, GenerateRequest, Message, ToolSchema,
+    approximate_token_count, Content, GenerateRequest, GenerateResponse, LlmProvider, Message,
+    ToolSchema,
 };
 use crate::repositories::artifact_repo::ArtifactType;
 use crate::services::ast_service;
@@ -309,6 +311,37 @@ fn validate_tool_output(tool: &ToolSchema, data: &JsonValue) -> Result<()> {
     ))
 }
 
+/// Run the golden generation, retrying only on transient stream-decode
+/// failures. Small Ollama models on 2-vCPU CI runners intermittently drop
+/// the chunked response mid-stream (`StreamInterrupted: error decoding
+/// response body`) — an infrastructure flake, not a pipeline regression —
+/// so we re-issue the request a bounded number of times. Every other error
+/// (schema, truncation, transport) fails fast so real regressions still
+/// surface.
+async fn generate_with_stream_retry(
+    provider: &dyn LlmProvider,
+    request: &GenerateRequest,
+) -> Result<GenerateResponse> {
+    const MAX_ATTEMPTS: usize = 2;
+    let mut last_err: Option<LlmError> = None;
+    for attempt in 1..=MAX_ATTEMPTS {
+        match provider.generate(request.clone()).await {
+            Ok(response) => return Ok(response),
+            Err(err @ LlmError::StreamInterrupted { .. }) => {
+                eprintln!(
+                    "golden probe: stream interrupted on attempt {attempt}/{MAX_ATTEMPTS}: {err}"
+                );
+                last_err = Some(err);
+            }
+            Err(err) => return Err(anyhow::Error::new(err).context("golden generation")),
+        }
+    }
+    Err(anyhow::Error::new(
+        last_err.expect("retry loop runs at least once"),
+    )
+    .context("golden generation failed after stream-interrupt retries"))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -383,23 +416,23 @@ mod tests {
         };
         let (messages, tool_schema, prompt_version) = select_prompt(artifact_type, &prompt_context);
 
-        let response = provider
-            .generate(GenerateRequest {
-                model: model.clone(),
-                messages,
-                tools: vec![tool_schema.clone()],
-                temperature: Some(0.1),
-                // Mirror the production generation budget
-                // (`RESPONSE_RESERVE_TOKENS`). The test-cases payload now
-                // carries a runnable `files[]` array on top of the cases,
-                // which overruns a 4k cap on the 3B model CI ships —
-                // truncating the free-text JSON the model emits mid-array
-                // so the salvage path cannot balance the object and the
-                // probe fails. Reading the const (now 6k) keeps probe +
-                // prod in lockstep so this stays fixed in one place.
-                max_tokens: Some(crate::services::generation_service::RESPONSE_RESERVE_TOKENS),
-                stop_sequences: Vec::new(),
-            })
+        let request = GenerateRequest {
+            model: model.clone(),
+            messages,
+            tools: vec![tool_schema.clone()],
+            temperature: Some(0.1),
+            // Mirror the production generation budget
+            // (`RESPONSE_RESERVE_TOKENS`). The test-cases payload now
+            // carries a runnable `files[]` array on top of the cases,
+            // which overruns a 4k cap on the 3B model CI ships —
+            // truncating the free-text JSON the model emits mid-array
+            // so the salvage path cannot balance the object and the
+            // probe fails. Reading the const (now 6k) keeps probe +
+            // prod in lockstep so this stays fixed in one place.
+            max_tokens: Some(crate::services::generation_service::RESPONSE_RESERVE_TOKENS),
+            stop_sequences: Vec::new(),
+        };
+        let response = generate_with_stream_retry(provider.as_ref(), &request)
             .await
             .expect("golden generation");
 

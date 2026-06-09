@@ -1590,6 +1590,106 @@ fn swap_inverted_line_range(
     }
 }
 
+/// Coerce pattern-constrained id strings (`TC-`/`DEF-`/`BUG-`, all of
+/// shape `^PREFIX-[A-Z0-9_-]+$`) into a form their schema accepts. Small
+/// non-tool-trained models routinely emit ids with lowercase letters or
+/// the case title concatenated in (`"TC-LOGIN-01 rejects empty
+/// password"`), which fails `pattern` validation and aborts the whole
+/// generation. We uppercase, fold every disallowed character run to a
+/// single hyphen, and trim — but only adopt the rewrite when the result
+/// actually satisfies the declared `pattern`. A value that is already
+/// valid, or one the transform cannot rescue, is left untouched for
+/// validation to report.
+fn coerce_pattern_constrained_ids(
+    obj: &mut serde_json::Map<String, JsonValue>,
+    properties: &serde_json::Map<String, JsonValue>,
+) {
+    for (schema_key, property_schema) in properties {
+        if property_schema.get("type").and_then(|t| t.as_str()) != Some("string") {
+            continue;
+        }
+        let Some(pattern) = property_schema.get("pattern").and_then(|p| p.as_str()) else {
+            continue;
+        };
+        let Some(JsonValue::String(current)) = obj.get(schema_key) else {
+            continue;
+        };
+        if value_matches_pattern(current, pattern) {
+            continue;
+        }
+        let sanitized = sanitize_id_value(current);
+        if !sanitized.is_empty() && value_matches_pattern(&sanitized, pattern) {
+            obj.insert(schema_key.clone(), JsonValue::String(sanitized));
+        }
+    }
+}
+
+/// Fold a free-form string into the `^PREFIX-[A-Z0-9_-]+$` id alphabet:
+/// uppercase, keep `[A-Z0-9_]`, collapse every other character run to a
+/// single hyphen, and trim leading/trailing hyphens.
+fn sanitize_id_value(raw: &str) -> String {
+    let mut out = String::with_capacity(raw.len());
+    let mut prev_dash = false;
+    for ch in raw.trim().chars() {
+        let up = ch.to_ascii_uppercase();
+        if up.is_ascii_alphanumeric() || up == '_' {
+            out.push(up);
+            prev_dash = false;
+        } else if !prev_dash {
+            out.push('-');
+            prev_dash = true;
+        }
+    }
+    out.trim_matches('-').to_string()
+}
+
+/// Validate a single string against a schema `pattern` by reusing the
+/// same JSON-Schema engine that guards the final tool output, so the
+/// regex dialect always matches. Compile failures are non-fatal — the
+/// authoritative validation downstream still runs.
+///
+/// Compiling a validator is comparatively expensive and the set of id
+/// patterns (`TC-`/`DEF-`/`BUG-`) is tiny and fixed, so each compiled
+/// validator is cached by pattern and reused across calls.
+fn value_matches_pattern(value: &str, pattern: &str) -> bool {
+    static VALIDATORS: std::sync::OnceLock<
+        std::sync::Mutex<std::collections::HashMap<String, jsonschema::JSONSchema>>,
+    > = std::sync::OnceLock::new();
+
+    let candidate = JsonValue::String(value.to_string());
+    let cache = VALIDATORS.get_or_init(|| std::sync::Mutex::new(std::collections::HashMap::new()));
+
+    let Ok(mut validators) = cache.lock() else {
+        // Poisoned mutex: fall back to a one-off compile so validation still runs.
+        return match compile_pattern_validator(pattern) {
+            Some(validator) => validator.is_valid(&candidate),
+            None => true,
+        };
+    };
+
+    if let Some(validator) = validators.get(pattern) {
+        return validator.is_valid(&candidate);
+    }
+
+    match compile_pattern_validator(pattern) {
+        Some(validator) => {
+            let matches = validator.is_valid(&candidate);
+            validators.insert(pattern.to_string(), validator);
+            matches
+        }
+        // Non-fatal: the authoritative validation downstream still runs.
+        None => true,
+    }
+}
+
+/// Compile a `{ "type": "string", "pattern": ... }` validator, reusing the
+/// same JSON-Schema engine as the final tool-output check. Returns `None`
+/// on compile failure, which callers treat as non-fatal.
+fn compile_pattern_validator(pattern: &str) -> Option<jsonschema::JSONSchema> {
+    let schema = serde_json::json!({ "type": "string", "pattern": pattern });
+    jsonschema::JSONSchema::compile(&schema).ok()
+}
+
 fn normalize_value_recursively(data: &mut JsonValue, schema: &JsonValue) {
     match data {
         JsonValue::Object(obj) => {
@@ -1682,6 +1782,11 @@ fn normalize_value_recursively(data: &mut JsonValue, schema: &JsonValue) {
             // 2d. Swap inverted `startLine`/`endLine` pairs so stored
             // payloads satisfy the Zod cross-field refinement.
             swap_inverted_line_range(obj, properties);
+
+            // 2e. Coerce pattern-constrained id strings (TC-/DEF-/BUG-)
+            // that a weak model emitted with lowercase or a concatenated
+            // title into their declared `^PREFIX-[A-Z0-9_-]+$` shape.
+            coerce_pattern_constrained_ids(obj, properties);
 
             // 3. Missing arrays normalization: Insert [] for required array fields if absent
             if let Some(required) = schema.get("required").and_then(|v| v.as_array()) {
@@ -3023,6 +3128,73 @@ mod tests {
         assert_eq!(data["key_modules"][0]["responsibility"], "handles users");
         assert!(data["key_modules"][0].get("Responsibility").is_none());
         assert_eq!(data["key_modules"][0]["name"], "auth");
+    }
+
+    #[test]
+    fn normalize_coerces_lowercase_and_titled_case_ids_into_pattern() {
+        use crate::prompts::test_cases_v2;
+        // Reproduces the live golden-probe failure: a 3B model concatenated
+        // each case title onto its id (`"TC-LOGIN-01 rejects empty
+        // password"`) and lowercased another, both failing the
+        // `^TC-[A-Z0-9_-]+$` pattern and aborting generation.
+        let schema = test_cases_v2::tool();
+        let mut data = serde_json::json!({
+            "cases": [
+                {
+                    "id": "TC-LOGIN-01 rejects empty password",
+                    "title": "rejects empty password",
+                    "type": "negative",
+                    "priority": "p1",
+                    "steps": [{ "action": "submit blank", "expectedResult": "rejected" }]
+                },
+                {
+                    "id": "tc-login-success",
+                    "title": "handles valid login",
+                    "type": "positive",
+                    "priority": "p0",
+                    "steps": [{ "action": "submit valid", "expectedResult": "ok" }]
+                }
+            ]
+        });
+        normalize_missing_arrays(&mut data, &schema);
+        assert_eq!(
+            data["cases"][0]["id"],
+            "TC-LOGIN-01-REJECTS-EMPTY-PASSWORD"
+        );
+        assert_eq!(data["cases"][1]["id"], "TC-LOGIN-SUCCESS");
+        // The coerced payload now satisfies the same validator the live
+        // generation path enforces.
+        validate_tool_output(&schema, &data).expect("coerced ids validate");
+    }
+
+    #[test]
+    fn normalize_leaves_valid_and_unsalvageable_ids_untouched() {
+        use crate::prompts::test_cases_v2;
+        let schema = test_cases_v2::tool();
+        let mut data = serde_json::json!({
+            "cases": [
+                {
+                    // Already valid — must not be rewritten.
+                    "id": "TC-VALID-01",
+                    "title": "already valid id",
+                    "type": "positive",
+                    "priority": "p0",
+                    "steps": [{ "action": "noop", "expectedResult": "ok" }]
+                },
+                {
+                    // No `TC-` prefix and no rescuable structure — left as-is
+                    // for validation to report rather than mangled.
+                    "id": "login flow",
+                    "title": "missing the required prefix",
+                    "type": "positive",
+                    "priority": "p0",
+                    "steps": [{ "action": "noop", "expectedResult": "ok" }]
+                }
+            ]
+        });
+        normalize_missing_arrays(&mut data, &schema);
+        assert_eq!(data["cases"][0]["id"], "TC-VALID-01");
+        assert_eq!(data["cases"][1]["id"], "login flow");
     }
 
     #[test]
