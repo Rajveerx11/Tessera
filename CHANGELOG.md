@@ -31,7 +31,7 @@ commit messages and [Semantic Versioning](https://semver.org/) for releases.
   `unit-test` → **`lint-and-test`**, `typecheck` + `build-check` → **`frontend-checks`**.
   The `master` ruleset now enforces 6 required status checks (`conflict-marker-check`,
   `frontend-checks`, `lint-and-test`, `server-check`, `e2e-test`,
-  `sandbox-runner-test`); `integration-test` stays advisory (`continue-on-error`).
+  `sandbox-runner-test`); `integration-test (ubuntu)` stays advisory (`continue-on-error`).
   See [`plan/CI_JOB_CONSOLIDATION.md`](plan/CI_JOB_CONSOLIDATION.md).
 
 ### 🚀 Added (merged to master 2026-06-05/06)

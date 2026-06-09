@@ -30,7 +30,7 @@ Frontend and shared package tests use Vitest and generally follow `*.test.ts` or
 
 Git history uses concise Conventional Commit style, such as `fix: ...`, `feat: ...`, `docs: ...`, or scoped variants like `fix(sandbox): ...`. PRs should include a short problem statement, the important implementation details, verification commands run, and screenshots or recordings for visible UI changes. Call out changes that affect model providers, sandbox behavior, persistence, or configuration.
 
-`master` is squash-only and linear, gated by the `Protect master` ruleset. Six CI jobs must pass before the merge button unlocks — `conflict-marker-check`, `lint-and-test`, `frontend-checks`, `server-check`, `e2e-test`, `sandbox-runner-test`; `integration-test` is advisory. Run `pnpm guard:pre-push` locally first. See [`docs/AGENT_WORKFLOW.md`](docs/AGENT_WORKFLOW.md) and [`BRANCH_PROTECTION.md`](BRANCH_PROTECTION.md).
+`master` is squash-only and linear, gated by the `Protect master` ruleset. Six CI jobs must pass before the merge button unlocks — `conflict-marker-check`, `lint-and-test`, `frontend-checks`, `server-check`, `e2e-test`, `sandbox-runner-test`; `integration-test (ubuntu)` is advisory. Run `pnpm guard:pre-push` locally first. See [`docs/AGENT_WORKFLOW.md`](docs/AGENT_WORKFLOW.md) and [`BRANCH_PROTECTION.md`](BRANCH_PROTECTION.md).
 
 ## Security & Configuration Tips
 
