@@ -88,7 +88,12 @@ jobs:
       - name: Run cargo clippy
         run: cargo clippy --manifest-path apps/desktop/src-tauri/Cargo.toml --locked --all-targets --lib -- -D warnings
 
+      # `if: always()` so a clippy failure above still runs the tests and
+      # surfaces their pass/fail — the merge into one job must not hide the
+      # unit-test signal behind a style break. clippy remains a hard gate:
+      # the job conclusion is still failure when clippy fails.
       - name: Run unit tests
+        if: always()
         run: pnpm test
 
   frontend-checks:
