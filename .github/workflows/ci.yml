@@ -273,7 +273,7 @@ jobs:
     runs-on: ubuntu-latest
     # Smoke test against a live Ollama instance. Generation quality and
     # stream reliability depend on CI runner resources (2 vCPU, 7 GB
-    # RAM) which are insufficient for deterministic 3B-model output.
+    # RAM) which are insufficient for deterministic 1.5B-model output.
     # Failures here do not indicate code regressions — the unit suite,
     # typecheck, and lint (all in lint-and-test / frontend-checks) are the
     # correctness gates.
@@ -282,7 +282,7 @@ jobs:
     # lint/type/test failure fails fast without spinning up the model. Depending
     # on `frontend-checks` (not just typecheck) now also waits on the Vite build
     # — an intentional, benign consequence of merging typecheck + build-check:
-    # there is no point pulling a 3B model if the renderer doesn't even build.
+    # there is no point pulling a 1.5B model if the renderer doesn't even build.
     needs:
       - lint-and-test
       - frontend-checks
@@ -307,7 +307,7 @@ jobs:
           # a server-side context shift that discards the prompt — the
           # model then rambles to max_tokens and trips the 600s client
           # timeout (StreamInterrupted). 16k fits prompt + response with
-          # headroom; KV cache for a 3B model at 16k is well within the
+          # headroom; KV cache for a 1.5B model at 16k is well within the
           # 7 GB runner.
           OLLAMA_CONTEXT_LENGTH: "16384"
     steps:
@@ -357,7 +357,7 @@ jobs:
 
       - name: Pull Ollama integration models
         run: |
-          docker exec "$OLLAMA_CONTAINER_ID" ollama pull qwen2.5-coder:3b
+          docker exec "$OLLAMA_CONTAINER_ID" ollama pull qwen2.5-coder:1.5b
           docker exec "$OLLAMA_CONTAINER_ID" ollama pull nomic-embed-text
 
       - name: Warm up Ollama models
@@ -369,14 +369,14 @@ jobs:
         # timeout in the Rust client.
         run: |
           curl --fail --silent --max-time 300 http://127.0.0.1:11434/api/generate \
-            -d '{"model":"qwen2.5-coder:3b","prompt":"hi","stream":false,"keep_alive":"30m"}' >/dev/null
+            -d '{"model":"qwen2.5-coder:1.5b","prompt":"hi","stream":false,"keep_alive":"30m"}' >/dev/null
           curl --fail --silent --max-time 120 http://127.0.0.1:11434/api/embeddings \
             -d '{"model":"nomic-embed-text","prompt":"hi","keep_alive":"30m"}' >/dev/null
 
       - name: Run desktop Vitest integration suite
         env:
           OLLAMA_BASE_URL: http://127.0.0.1:11434
-          OLLAMA_TEST_CHAT_MODEL: qwen2.5-coder:3b
+          OLLAMA_TEST_CHAT_MODEL: qwen2.5-coder:1.5b
           OLLAMA_TEST_EMBED_MODEL: nomic-embed-text
         run: pnpm --filter @testing-ide/desktop run test:integration
 
@@ -384,7 +384,7 @@ jobs:
         env:
           OLLAMA_INTEGRATION: "1"
           OLLAMA_BASE_URL: http://127.0.0.1:11434
-          OLLAMA_TEST_CHAT_MODEL: qwen2.5-coder:3b
+          OLLAMA_TEST_CHAT_MODEL: qwen2.5-coder:1.5b
           OLLAMA_TEST_EMBED_MODEL: nomic-embed-text
         run: cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml --test integration_ollama -- --nocapture
 
