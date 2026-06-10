@@ -5,7 +5,7 @@ import { embeddings } from '@/lib/ipc';
 
 /**
  * Stale-index status for the open project
- * (plan/EMBEDDING_PROVIDER_SELECT.md §7.2).
+ * (plan/versions/v1/EMBEDDING_PROVIDER_SELECT.md §7.2).
  *
  * Centralised so every refresh trigger converges on one fetch path:
  * the banner refreshes on project open and analyze completion, and the

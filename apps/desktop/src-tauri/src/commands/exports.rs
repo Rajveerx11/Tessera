@@ -1,4 +1,4 @@
-//! Artifact export IPC commands (`plan/ARTIFACT_EXPORT.md` Phase 1).
+//! Artifact export IPC commands (`plan/versions/v1/ARTIFACT_EXPORT.md` Phase 1).
 //!
 //! Thin per `rules.md` §4.2: validate input, delegate to
 //! `services::export`, map errors to strings at the boundary. The

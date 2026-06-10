@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1
 #
 # Sandbox runner image for the JS/TS closed-loop test runner
-# (plan/SANDBOX_TEST_RUNNER.md §7). Built locally on first enable — no
+# (plan/versions/v1/SANDBOX_TEST_RUNNER.md §7). Built locally on first enable — no
 # registry dependency, preserving the local-first guarantee:
 #
 #   docker build -t tessera-runner-js \

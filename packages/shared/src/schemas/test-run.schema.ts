@@ -2,7 +2,7 @@ import { z } from 'zod';
 
 /**
  * Contract for the closed-loop sandboxed test runner
- * (plan/SANDBOX_TEST_RUNNER.md §6).
+ * (plan/versions/v1/SANDBOX_TEST_RUNNER.md §6).
  *
  * Rust serde is the source of truth (rules §12.3.1); these schemas mirror
  * the structs + enums in

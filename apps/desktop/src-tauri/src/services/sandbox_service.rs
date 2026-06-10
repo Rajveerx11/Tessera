@@ -102,7 +102,7 @@ impl Drop for RegistryGuard<'_> {
 }
 
 /// Selects the concrete [`TestRunner`] for the language detected from the
-/// artifact's `files[]` (`plan/SANDBOX_PYTHON_RUNNER.md` §4.2). Production
+/// artifact's `files[]` (`plan/versions/v1/SANDBOX_PYTHON_RUNNER.md` §4.2). Production
 /// wires `providers::runners::factory::runner_for`; tests pass a closure
 /// returning a scripted runner.
 pub type RunnerFactory = dyn Fn(RunnerLanguage) -> Arc<dyn TestRunner> + Send + Sync;
@@ -339,7 +339,7 @@ async fn persist_failure(
 /// array — `[{ "path": "...", "contents": "...", "isTest": bool }]`. The
 /// language is inferred from the file extensions; a workspace that mixes
 /// Python and JS/TS sources is rejected — no runner can execute both
-/// (`plan/SANDBOX_PYTHON_RUNNER.md` §4.2).
+/// (`plan/versions/v1/SANDBOX_PYTHON_RUNNER.md` §4.2).
 ///
 /// # Errors
 ///
@@ -397,7 +397,7 @@ fn build_run_input(structured_data: &JsonValue) -> AppResult<RunInput> {
 }
 
 /// Infer the workspace's [`RunnerLanguage`] from its file extensions
-/// (`plan/SANDBOX_PYTHON_RUNNER.md` §4.2).
+/// (`plan/versions/v1/SANDBOX_PYTHON_RUNNER.md` §4.2).
 ///
 /// Only recognised *code* extensions vote — auxiliary files (`.json`,
 /// `.md`, `conftest` data, …) must not flip the detection or trigger a

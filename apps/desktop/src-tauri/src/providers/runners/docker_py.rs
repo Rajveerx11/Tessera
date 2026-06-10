@@ -1,5 +1,5 @@
 //! Python sandboxed test runner backed by local Docker
-//! (`plan/SANDBOX_PYTHON_RUNNER.md`).
+//! (`plan/versions/v1/SANDBOX_PYTHON_RUNNER.md`).
 //!
 //! Second vertical slice of the sandboxed runner: same [`TestRunner`]
 //! trait, same hardened container ([`docker_harness`]), different

@@ -1,6 +1,6 @@
 //! CSV / TSV writers over the export IR.
 //!
-//! Format choices (see `plan/ARTIFACT_EXPORT.md` §5):
+//! Format choices (see `plan/versions/v1/ARTIFACT_EXPORT.md` §5):
 //!
 //! - CSV files start with a UTF-8 BOM — Excel on Windows misdetects
 //!   BOM-less UTF-8; Google Sheets ignores the BOM.

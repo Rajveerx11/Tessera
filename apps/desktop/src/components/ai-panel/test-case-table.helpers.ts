@@ -7,7 +7,7 @@ import type {
 
 /**
  * Pure helpers backing the {@link TestCaseTable} component
- * (plan/TEST_CASE_TABLE.md). Kept out of the `.tsx` so the component file
+ * (plan/versions/v1/TEST_CASE_TABLE.md). Kept out of the `.tsx` so the component file
  * exports a component only (React Fast Refresh) and so this logic is unit
  * testable without rendering.
  */

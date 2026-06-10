@@ -190,7 +190,7 @@ pub fn build_llm_provider(config: &ProviderConfig) -> Result<Arc<dyn LlmProvider
 /// separate from [`ProviderKind`]: the LLM catalog (Anthropic,
 /// `OpenRouter`) and the embedding catalog (Hugging Face) diverge, and
 /// fusing them would force permanent `Unsupported` arms in both
-/// directions (`plan/EMBEDDING_PROVIDER_SELECT.md` §5.2).
+/// directions (`plan/versions/v1/EMBEDDING_PROVIDER_SELECT.md` §5.2).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum EmbeddingProviderKind {
     #[serde(rename = "ollama")]

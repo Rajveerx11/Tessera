@@ -7,7 +7,7 @@ import { useEmbeddingStore } from '@/stores/embedding-store';
 import { useWorkspaceStore } from '@/stores/workspace-store';
 
 /**
- * Non-blocking stale-index banner (plan/EMBEDDING_PROVIDER_SELECT.md
+ * Non-blocking stale-index banner (plan/versions/v1/EMBEDDING_PROVIDER_SELECT.md
  * §7.2). Shown between the toolbar and the workspace when the open
  * project's chunk index was built with a different embedding
  * provider/model than the active config — RAG retrieval is degraded

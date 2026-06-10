@@ -20,7 +20,7 @@ Tessera is a local-first AI testing IDE built as a Tauri desktop app. The React/
 
 Use TypeScript, React, ESLint, and Vitest conventions in frontend code. Prefer PascalCase for React components, camelCase for functions and variables, and kebab-case for route or asset filenames when applicable. Rust code should be formatted with `rustfmt`, pass `clippy`, and use snake_case for modules, functions, and fields. Preserve the existing backend layering: commands validate and delegate, services coordinate behavior, repositories own SQL, and providers isolate external APIs.
 
-The **active LLM connection is a singleton**: exactly one `user_provider_configs` row is `is_active` at a time, enforced transactionally in `provider_config_repo::upsert` (activating one provider deactivates the rest). The frontend honours the explicit pick and never falls back to an arbitrary first row — see [`plan/CONNECTION_SELECT.md`](plan/CONNECTION_SELECT.md).
+The **active LLM connection is a singleton**: exactly one `user_provider_configs` row is `is_active` at a time, enforced transactionally in `provider_config_repo::upsert` (activating one provider deactivates the rest). The frontend honours the explicit pick and never falls back to an arbitrary first row — see [`plan/versions/v1/CONNECTION_SELECT.md`](plan/versions/v1/CONNECTION_SELECT.md).
 
 ## Testing Guidelines
 

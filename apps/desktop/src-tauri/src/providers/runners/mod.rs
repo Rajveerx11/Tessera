@@ -1,6 +1,6 @@
 //! Sandboxed test-runner abstraction + shared wire types.
 //!
-//! Phase 1 (contract slice, `plan/SANDBOX_TEST_RUNNER.md` §6): the serde
+//! Phase 1 (contract slice, `plan/versions/v1/SANDBOX_TEST_RUNNER.md` §6): the serde
 //! structs + status enums that cross the IPC boundary and persist to the
 //! `test_runs` family of tables (migration `0004_test_runs.sql`). They
 //! mirror the Zod schemas in
@@ -10,7 +10,7 @@
 //! Phase 2 adds the [`TestRunner`] async trait + the Docker implementation
 //! ([`docker_js`]). The trait keeps `sandbox_service` ignorant of Docker
 //! specifics so a cloud impl (plan §11) can drop in later.
-//! `plan/SANDBOX_PYTHON_RUNNER.md` adds the second slice: [`docker_py`]
+//! `plan/versions/v1/SANDBOX_PYTHON_RUNNER.md` adds the second slice: [`docker_py`]
 //! behind the same trait, with the shared Docker hardening extracted into
 //! [`docker_harness`] and per-language selection in [`factory`].
 //!
@@ -186,7 +186,7 @@ pub struct RunResult {
 // ---------------------------------------------------------------------------
 
 /// Source language a runner executes. JS/TS run in [`docker_js`]; Python
-/// runs in [`docker_py`] (`plan/SANDBOX_PYTHON_RUNNER.md`). Selection
+/// runs in [`docker_py`] (`plan/versions/v1/SANDBOX_PYTHON_RUNNER.md`). Selection
 /// happens in [`factory::runner_for`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RunnerLanguage {

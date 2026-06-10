@@ -1,5 +1,5 @@
 //! Artifact export service — markdown / json / xlsx / csv / tsv (see
-//! `plan/ARTIFACT_EXPORT.md`).
+//! `plan/versions/v1/ARTIFACT_EXPORT.md`).
 //!
 //! Mirrors the generation-service pattern: this module is the sole
 //! entry point for exports; commands in `commands/exports.rs` stay

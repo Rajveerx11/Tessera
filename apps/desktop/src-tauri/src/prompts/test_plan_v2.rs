@@ -1,6 +1,6 @@
 //! Prompt template: full-project test plan, version 2.
 //!
-//! Industry-grade upgrade over `test_plan_v1` (`plan/ARTIFACT_QUALITY_V2.md`
+//! Industry-grade upgrade over `test_plan_v1` (`plan/versions/v1/ARTIFACT_QUALITY_V2.md`
 //! Phase 2), an ISO/IEC/IEEE 29119-lite / IEEE 829 backbone: nested
 //! `scope { inScope, outOfScope }`, `suspensionCriteria`, explicit
 //! `testLevels` / `testTypes` enums, and `deliverables`. Consumed by the

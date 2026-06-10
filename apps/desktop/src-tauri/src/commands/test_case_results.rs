@@ -1,5 +1,5 @@
 //! Test-case-result IPC commands — the manual-edit half of the
-//! 9-column Test Case table (`plan/TEST_CASE_TABLE.md` §5, Phase 2).
+//! 9-column Test Case table (`plan/versions/v1/TEST_CASE_TABLE.md` §5, Phase 2).
 //!
 //! Per `rules.md` §4.2.1: thin handlers over `test_case_result_repo`
 //! (the same direct-to-repo shape as `commands/artifacts.rs`). A tester

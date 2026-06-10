@@ -1,5 +1,5 @@
 //! Test-case-result repository — persistence for the per-case
-//! execution-outcome sidecar (`plan/TEST_CASE_TABLE.md` §4.1).
+//! execution-outcome sidecar (`plan/versions/v1/TEST_CASE_TABLE.md` §4.1).
 //!
 //! Per `rules.md` §4.2 + §2.3 this module owns all SQL touching the
 //! `test_case_results` table (migration `0007_test_case_results.sql`).

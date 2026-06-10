@@ -2,7 +2,7 @@ import { z } from 'zod';
 
 /**
  * Per-case execution outcome sidecar for the 9-column Test Case table
- * (plan/TEST_CASE_TABLE.md §4). Columns 8–9 (Actual output / Result and
+ * (plan/versions/v1/TEST_CASE_TABLE.md §4). Columns 8–9 (Actual output / Result and
  * remarks) are mutable, user- and runtime-owned data kept out of the LLM
  * artifact's `structured_data` so a regeneration cannot wipe them.
  *

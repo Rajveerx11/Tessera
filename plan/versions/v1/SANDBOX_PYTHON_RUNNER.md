@@ -18,7 +18,7 @@
 > Second vertical slice of the sandboxed test runner — Python (pytest + coverage.py)
 > behind the same `TestRunner` trait. Follows [`SANDBOX_TEST_RUNNER.md`](./SANDBOX_TEST_RUNNER.md)
 > (JS/TS slice, shipped) and the security model in
-> [ADR-0004](../apps/desktop/src-tauri/docs/adr/0004-sandbox-test-runner.md).
+> [ADR-0004](../../../apps/desktop/src-tauri/docs/adr/0004-sandbox-test-runner.md).
 > ROADMAP: "Python (`docker_py`) + cloud runners next, behind the same `TestRunner` trait".
 
 ## 1. Goal

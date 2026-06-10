@@ -9,7 +9,7 @@ import type { BugReport, DefectReport, TestCase, TestPlan } from '@testing-ide/s
 import { TestCaseTable } from '@/components/ai-panel/test-case-table';
 
 /**
- * Structured renderers for v2 artifact payloads (plan/ARTIFACT_QUALITY_V2.md
+ * Structured renderers for v2 artifact payloads (plan/versions/v1/ARTIFACT_QUALITY_V2.md
  * Phases 1 + 2): step tables for test cases, repro steps + severity/priority
  * split for bug reports, scope/criteria sections for test plans, and
  * CWE-categorized finding cards for defect reports.

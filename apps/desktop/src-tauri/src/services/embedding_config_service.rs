@@ -1,5 +1,5 @@
 //! Embedding configuration service — selection, key handling, and
-//! provider resolution (`plan/EMBEDDING_PROVIDER_SELECT.md`).
+//! provider resolution (`plan/versions/v1/EMBEDDING_PROVIDER_SELECT.md`).
 //!
 //! Per `rules.md` §4.2 + §9: encrypts API keys before persistence,
 //! decrypts only into in-memory [`EmbeddingConfig`] values, and never

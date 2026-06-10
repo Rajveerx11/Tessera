@@ -13,7 +13,7 @@ import {
 import { getErrorMessage, testCaseResults } from '@/lib/ipc';
 
 /**
- * The fixed 9-column Test Case table (plan/TEST_CASE_TABLE.md). The LLM
+ * The fixed 9-column Test Case table (plan/versions/v1/TEST_CASE_TABLE.md). The LLM
  * decides how many rows (cases) to emit; the columns are fixed. Columns
  * 8–9 (Actual output / Result and remarks) are editable cells backed by
  * the `test_case_results` sidecar — a tester types them or an opt-in

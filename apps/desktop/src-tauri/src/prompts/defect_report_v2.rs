@@ -1,6 +1,6 @@
 //! Prompt template: static-analysis defect report, version 2.
 //!
-//! Industry-grade upgrade over `defect_report_v1` (`plan/ARTIFACT_QUALITY_V2.md`
+//! Industry-grade upgrade over `defect_report_v1` (`plan/versions/v1/ARTIFACT_QUALITY_V2.md`
 //! Phase 2): `category` aligned to CWE top classes, required
 //! `fixSuggestion` per finding, and evidence fields at parity with the
 //! bug report (`evidenceSnippet`, `location.fileHint` + line range).

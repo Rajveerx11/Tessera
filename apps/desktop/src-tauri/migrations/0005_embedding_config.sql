@@ -1,4 +1,4 @@
--- Embedding provider selection (plan/EMBEDDING_PROVIDER_SELECT.md).
+-- Embedding provider selection (plan/versions/v1/EMBEDDING_PROVIDER_SELECT.md).
 --
 -- Embedding choice is independent of the LLM provider choice: a user can
 -- chat via Anthropic while embedding via local Ollama. One row per

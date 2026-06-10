@@ -1,6 +1,6 @@
 -- Migration 0004 — sandboxed test-runner tables.
 --
--- Backs the closed-loop test runner (plan/SANDBOX_TEST_RUNNER.md §5).
+-- Backs the closed-loop test runner (plan/versions/v1/SANDBOX_TEST_RUNNER.md §5).
 -- A run executes a generated test-case artifact inside a local Docker
 -- sandbox; we persist the run header, one row per executed assertion,
 -- and per-source-line coverage so the editor can paint gutters.

@@ -45,7 +45,7 @@ appear in the UI dropdown after the first CI run on a branch):
 `integration-test (ubuntu)` is **intentionally excluded** — it is
 `continue-on-error` (live-Ollama smoke test, flaky on free runners) and must
 never block a merge. See [`docs/AGENT_WORKFLOW.md`](docs/AGENT_WORKFLOW.md) §3.5
-for what each job asserts and [`plan/CI_JOB_CONSOLIDATION.md`](plan/CI_JOB_CONSOLIDATION.md)
+for what each job asserts and [`plan/versions/v1/CI_JOB_CONSOLIDATION.md`](plan/versions/v1/CI_JOB_CONSOLIDATION.md)
 for why `lint-and-test` / `frontend-checks` are merged jobs.
 
 ---

@@ -3,7 +3,7 @@
 //! Per `rules.md` §4.2.1 + §9: thin handlers over
 //! `embedding_config_service`. API keys are encrypted before
 //! persistence and never returned in plaintext over IPC
-//! (`plan/EMBEDDING_PROVIDER_SELECT.md` §6.1).
+//! (`plan/versions/v1/EMBEDDING_PROVIDER_SELECT.md` §6.1).
 
 use serde::Deserialize;
 use sqlx::SqlitePool;

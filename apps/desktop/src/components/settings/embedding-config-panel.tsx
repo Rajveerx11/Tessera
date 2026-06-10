@@ -41,7 +41,7 @@ const LLM_KEY_FALLBACK_PROVIDERS: ReadonlySet<EmbeddingProviderId> = new Set([
 
 /**
  * Embeddings section of the Settings sheet
- * (plan/EMBEDDING_PROVIDER_SELECT.md §7.1).
+ * (plan/versions/v1/EMBEDDING_PROVIDER_SELECT.md §7.1).
  *
  * Embedding choice is independent of the LLM provider: the model preset
  * list comes from `list_embedding_presets` (single source of truth in

@@ -1,6 +1,6 @@
 -- Migration 0007 — per-case execution-outcome sidecar.
 --
--- Backs the fixed 9-column Test Case table (plan/TEST_CASE_TABLE.md §4).
+-- Backs the fixed 9-column Test Case table (plan/versions/v1/TEST_CASE_TABLE.md §4).
 -- Columns 8–9 (Actual output / Result and remarks) are mutable,
 -- user- and runtime-owned data that the LLM cannot know at generation
 -- time. The artifact's `structured_data` JSON is regenerated on every

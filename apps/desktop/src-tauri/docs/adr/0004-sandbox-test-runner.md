@@ -8,7 +8,7 @@
 
 ## Context
 
-Tessera's core promise (`plan/SANDBOX_TEST_RUNNER.md` §3) is **no code
+Tessera's core promise (`plan/versions/v1/SANDBOX_TEST_RUNNER.md` §3) is **no code
 execution and no remote upload on the default path**. The closed-loop test
 runner deliberately adds *local* code execution: it takes a generated
 test-case artifact, runs it, and paints pass/fail + coverage onto the editor.

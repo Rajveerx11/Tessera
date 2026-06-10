@@ -1,5 +1,5 @@
 //! Shared Docker plumbing for sandboxed test runners
-//! (`plan/SANDBOX_PYTHON_RUNNER.md` §4.1).
+//! (`plan/versions/v1/SANDBOX_PYTHON_RUNNER.md` §4.1).
 //!
 //! Every Docker-backed [`TestRunner`](super::TestRunner) — JS/TS today,
 //! Python now, Java/Go later — must run its container with the **same**

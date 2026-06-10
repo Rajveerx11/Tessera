@@ -15,7 +15,7 @@
 //! - [`project_repo`] (Phase 4) — project-level persistence.
 //! - [`provider_config_repo`] (Phase 4) — provider configuration persistence.
 //! - [`embedding_config_repo`] — embedding provider selection persistence
-//!   (`plan/EMBEDDING_PROVIDER_SELECT.md`).
+//!   (`plan/versions/v1/EMBEDDING_PROVIDER_SELECT.md`).
 //! - [`test_run_repo`] (sandbox runner Phase 1) — sandboxed test-run,
 //!   per-case, and coverage persistence.
 //! - [`test_case_result_repo`] (Test Case table) — per-case
