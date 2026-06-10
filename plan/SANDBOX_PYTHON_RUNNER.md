@@ -140,13 +140,24 @@ rootfs read-only). Single container command:
 ```
 COVERAGE_FILE=/work/.coverage \
 coverage run -m pytest /work --json-report --json-report-file=/work/results.json -q ; \
-coverage json -o /work/coverage/coverage.json
+mkdir -p /work/coverage && coverage json -o /work/coverage/coverage.json
 ```
 
+- `mkdir -p /work/coverage` is required: the rootfs is read-only and the
+  container does not auto-create subdirectories under `/work`, so
+  `coverage json -o /work/coverage/coverage.json` would fail with
+  `FileNotFoundError` (silently producing zero coverage on an otherwise green
+  run) without it. Alternatively `docker_py.rs` can pre-create `coverage/` when
+  it builds the temp workspace; the inline `mkdir -p` keeps the responsibility
+  in one place.
 - `coverage json` runs even when tests fail (`;` not `&&`) — failed runs still
   report coverage, matching JS behaviour.
-- Results read from the mounted workspace after exit, same as the JS runner
-  reads `results.json` + `coverage/coverage-final.json`.
+- Results read from the mounted workspace after exit, mirroring the JS runner's
+  flow but **not its filenames**: Python writes `results.json` +
+  `coverage/coverage.json` (coverage.py's `coverage json` defaults to
+  `coverage.json`), whereas the JS runner reads istanbul's
+  `coverage/coverage-final.json`. `parse_coverage_py()` must read
+  `coverage/coverage.json`.
 - Exit code is informational only; status derives from parsed results
   (`derive_status` pattern: any failure → Failed, any pass → Passed,
   empty → Error).
@@ -186,7 +197,9 @@ language of the supplied chunks:
 1. Extract `docker_harness.rs`; refit `docker_js.rs` onto it. Pure refactor —
    all existing runner tests green before anything Python lands.
 2. `RunnerLanguage::Python` + `from_path(".py")`; runner selection per §4.2;
-   mixed-language rejection + unit test.
+   mixed-language rejection + unit test. Also update the now-stale doc comment
+   at `providers/runners/mod.rs:183` ("Phase 2 ships JS/TS; `docker_py`
+   (plan §11, Phase 6) adds Python …") to reflect Python landing in this slice.
 3. `Dockerfile.runner-py` (pinned digest + pins).
 4. `docker_py.rs`: workspace → container → parse, reusing harness; parsers +
    fixtures + unit tests (status mapping, duration conversion, truncation,
