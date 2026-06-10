@@ -2,7 +2,7 @@
 //!
 //! One mapper per artifact type produces a writer-agnostic
 //! [`ExportDoc`]; every output format (csv, tsv, xlsx — and later the
-//! Jira adapter, see `plan/ARTIFACT_EXPORT.md` §3) consumes only this
+//! Jira adapter, see `plan/versions/v1/ARTIFACT_EXPORT.md` §3) consumes only this
 //! IR. This keeps the artifact-type × destination matrix at N+M
 //! instead of N×M.
 //!

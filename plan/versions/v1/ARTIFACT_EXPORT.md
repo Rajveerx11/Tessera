@@ -4,7 +4,7 @@
 
 ## 1. Why
 
-QA/QT practitioners we talked to overwhelmingly work in Jira; artifact export is table-stakes for Tessera adoption. [`ROADMAP.md`](./ROADMAP.md) lists "No export integrations" as a known gap. Strategy:
+QA/QT practitioners we talked to overwhelmingly work in Jira; artifact export is table-stakes for Tessera adoption. [`ROADMAP.md`](../../ROADMAP.md) lists "No export integrations" as a known gap. Strategy:
 
 1. **Ship file export first** — Excel (`.xlsx`) + CSV/TSV. Zero auth, zero network, fully local-first. Covers Google Sheets (xlsx/csv import + TSV paste) and even Jira's built-in CSV import on day one.
 2. **Jira API integration next** — definite, committed scope (Phase 3). The architecture below is shaped so the Jira adapter drops in without rework.

@@ -28,7 +28,7 @@ use super::payload::{
 /// `results` is the per-case execution-outcome sidecar
 /// (`test_case_results`) joined onto a test-cases artifact so the
 /// exported table carries the Actual output / Result and remarks
-/// columns (`plan/TEST_CASE_TABLE.md` §5, Phase 3). It is empty for every
+/// columns (`plan/versions/v1/TEST_CASE_TABLE.md` §5, Phase 3). It is empty for every
 /// other artifact type.
 ///
 /// # Errors

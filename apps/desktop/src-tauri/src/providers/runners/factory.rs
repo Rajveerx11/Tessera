@@ -1,4 +1,4 @@
-//! Per-language [`TestRunner`] selection (`plan/SANDBOX_PYTHON_RUNNER.md`
+//! Per-language [`TestRunner`] selection (`plan/versions/v1/SANDBOX_PYTHON_RUNNER.md`
 //! §4.2). Mirrors `providers/factory.rs` for LLM/embedding providers:
 //! callers (the `run_test_sandbox` command via `SandboxDeps`) depend on
 //! this function, never on a concrete runner type, so adding a language

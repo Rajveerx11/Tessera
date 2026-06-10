@@ -9,7 +9,7 @@
 //! providers ship at the same shape: [`OpenAiCompatEmbeddingProvider`]
 //! covers every OpenAI-wire backend (`OpenAI`, Gemini compat layer) and
 //! [`HuggingFaceEmbeddingProvider`] speaks the HF feature-extraction
-//! format (`plan/EMBEDDING_PROVIDER_SELECT.md`).
+//! format (`plan/versions/v1/EMBEDDING_PROVIDER_SELECT.md`).
 
 use async_trait::async_trait;
 

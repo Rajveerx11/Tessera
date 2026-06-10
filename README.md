@@ -55,7 +55,7 @@ Each artifact is versioned; regenerating with reviewer feedback bumps the versio
 
 ### Run generated tests (optional)
 
-Opt-in, off by default. With the sandbox enabled in settings and Docker present, **Run** on a Test Cases artifact executes the generated JS/TS tests inside a hardened, network-less Docker container and paints pass/fail + line coverage onto the Monaco gutters (green = covered, amber = uncovered). Code never leaves the machine: the container runs with `--network none`, drops all capabilities, runs non-root on a read-only rootfs under cpu/mem/pids/file-size caps, and is killed on timeout or Stop. The backend refuses any run unless opt-in is confirmed. See [`plan/SANDBOX_TEST_RUNNER.md`](./plan/SANDBOX_TEST_RUNNER.md) and [ADR-0004](./apps/desktop/src-tauri/docs/adr/0004-sandbox-test-runner.md).
+Opt-in, off by default. With the sandbox enabled in settings and Docker present, **Run** on a Test Cases artifact executes the generated JS/TS tests inside a hardened, network-less Docker container and paints pass/fail + line coverage onto the Monaco gutters (green = covered, amber = uncovered). Code never leaves the machine: the container runs with `--network none`, drops all capabilities, runs non-root on a read-only rootfs under cpu/mem/pids/file-size caps, and is killed on timeout or Stop. The backend refuses any run unless opt-in is confirmed. See [`plan/versions/v1/SANDBOX_TEST_RUNNER.md`](./plan/versions/v1/SANDBOX_TEST_RUNNER.md) and [ADR-0004](./apps/desktop/src-tauri/docs/adr/0004-sandbox-test-runner.md).
 
 ---
 
@@ -193,7 +193,7 @@ Stay up to date with what's happening in the project:
 
 **v0.1 (shipped)** — feature-complete: 5 artifact types, 5 LLM providers, RAG pipeline, streaming generation, first-run wizard, cross-platform signed releases.
 
-**Sandbox test runner (shipped, JS/TS + Python)** — opt-in Docker sandbox runs generated test cases and overlays pass/fail + line coverage on the editor, closing the generate → run → measure loop ([ADR-0004](./apps/desktop/src-tauri/docs/adr/0004-sandbox-test-runner.md)). The Python slice (`docker_py`: pytest + coverage.py, stdlib-only image) landed on the same `TestRunner` trait with the Docker hardening extracted into a shared harness — adding Java/Go is one `docker_<lang>.rs` + one Dockerfile ([plan](./plan/SANDBOX_PYTHON_RUNNER.md)). Cloud runners are next.
+**Sandbox test runner (shipped, JS/TS + Python)** — opt-in Docker sandbox runs generated test cases and overlays pass/fail + line coverage on the editor, closing the generate → run → measure loop ([ADR-0004](./apps/desktop/src-tauri/docs/adr/0004-sandbox-test-runner.md)). The Python slice (`docker_py`: pytest + coverage.py, stdlib-only image) landed on the same `TestRunner` trait with the Docker hardening extracted into a shared harness — adding Java/Go is one `docker_<lang>.rs` + one Dockerfile ([plan](./plan/versions/v1/SANDBOX_PYTHON_RUNNER.md)). Cloud runners are next.
 
 **Next** — more AST languages (Go, Java, C#, Ruby, Rust) · `sqlite-vec` virtual-table search for projects > 50K chunks ([ADR-0002](./apps/desktop/src-tauri/docs/adr/0002-vec0-migration-trigger.md)) · cloud embedding providers · export to JIRA / Linear / GitHub Issues · team-mode collaboration.
 

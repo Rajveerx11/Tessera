@@ -18,7 +18,7 @@ commit messages and [Semantic Versioning](https://semver.org/) for releases.
   manual pick in the status-bar switcher is authoritative. The frontend dropped
   its silent first-row fallback (`pickActiveProvider` returns `null` when nothing
   is selected) and the AI panel blocks generation with a "Select a connection"
-  prompt instead of guessing. See [`plan/CONNECTION_SELECT.md`](plan/CONNECTION_SELECT.md).
+  prompt instead of guessing. See [`plan/versions/v1/CONNECTION_SELECT.md`](plan/versions/v1/CONNECTION_SELECT.md).
 
 ### 🔧 Changed — CI/CD (merged to master 2026-06-09)
 
@@ -32,7 +32,7 @@ commit messages and [Semantic Versioning](https://semver.org/) for releases.
   The `master` ruleset now enforces 6 required status checks (`conflict-marker-check`,
   `frontend-checks`, `lint-and-test`, `server-check`, `e2e-test`,
   `sandbox-runner-test`); `integration-test (ubuntu)` stays advisory (`continue-on-error`).
-  See [`plan/CI_JOB_CONSOLIDATION.md`](plan/CI_JOB_CONSOLIDATION.md).
+  See [`plan/versions/v1/CI_JOB_CONSOLIDATION.md`](plan/versions/v1/CI_JOB_CONSOLIDATION.md).
 
 ### 🚀 Added (merged to master 2026-06-05/06)
 
@@ -52,7 +52,7 @@ commit messages and [Semantic Versioning](https://semver.org/) for releases.
 
 - **Artifact Quality v2** — industry-grade artifact schemas (IEEE 829 /
   ISO 29119-3 / ISTQB aligned), 3-phase plan in
-  [`plan/ARTIFACT_QUALITY_V2.md`](plan/ARTIFACT_QUALITY_V2.md).
+  [`plan/versions/v1/ARTIFACT_QUALITY_V2.md`](plan/versions/v1/ARTIFACT_QUALITY_V2.md).
 
 ---
 
@@ -144,9 +144,9 @@ and line-level coverage painted directly onto the Monaco editor gutters.
 - **`docs/AGENT_WORKFLOW.md`** (292 lines) — change-management contract for AI
   agents and humans. Core invariant, change loop, 10 hard rules for AI agents,
   common failure modes with resolution steps.
-- **`plan/SANDBOX_TEST_RUNNER.md`** (268 lines) — 6-phase implementation plan with
+- **`plan/versions/v1/SANDBOX_TEST_RUNNER.md`** (268 lines) — 6-phase implementation plan with
   architecture, data model, Docker runner design, security checklist.
-- **`plan/JIRA_INTEGRATION.md`** (408 lines) — planned Jira-like boards feature
+- **`plan/versions/v1/JIRA_INTEGRATION.md`** (408 lines) — planned Jira-like boards feature
   with server architecture, data model, 5 implementation phases.
 
 ### 🔧 Changed

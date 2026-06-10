@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What This Is
 
-Tessera — local-first AI testing IDE. Generates test artifacts (Context, Test Plan, Test Cases, Defect Report, Bug Report) by running static analysis (tree-sitter AST) + RAG over local code, then calling an LLM (Ollama default; also OpenAI, Anthropic, Google Gemini, OpenRouter). Embeddings are selected independently of the LLM (local Ollama default; OpenAI / Gemini / Hugging Face cloud optional — see `plan/EMBEDDING_PROVIDER_SELECT.md`; `embedding_config_service::resolve_provider` is the only production path that constructs an `EmbeddingProvider`). Static analysis only on the default path — no remote code upload (cloud embeddings, when explicitly selected, send code snippets to that provider). An **opt-in** local Docker sandbox (off by default) executes generated JS/TS and Python test cases to report pass/fail + line coverage; it runs with no network and the backend rejects runs unless opt-in is confirmed. See `plan/SANDBOX_TEST_RUNNER.md` (JS/TS), `plan/SANDBOX_PYTHON_RUNNER.md` (Python) + `apps/desktop/src-tauri/docs/adr/0004-sandbox-test-runner.md`.
+Tessera — local-first AI testing IDE. Generates test artifacts (Context, Test Plan, Test Cases, Defect Report, Bug Report) by running static analysis (tree-sitter AST) + RAG over local code, then calling an LLM (Ollama default; also OpenAI, Anthropic, Google Gemini, OpenRouter). Embeddings are selected independently of the LLM (local Ollama default; OpenAI / Gemini / Hugging Face cloud optional — see `plan/versions/v1/EMBEDDING_PROVIDER_SELECT.md`; `embedding_config_service::resolve_provider` is the only production path that constructs an `EmbeddingProvider`). Static analysis only on the default path — no remote code upload (cloud embeddings, when explicitly selected, send code snippets to that provider). An **opt-in** local Docker sandbox (off by default) executes generated JS/TS and Python test cases to report pass/fail + line coverage; it runs with no network and the backend rejects runs unless opt-in is confirmed. See `plan/versions/v1/SANDBOX_TEST_RUNNER.md` (JS/TS), `plan/versions/v1/SANDBOX_PYTHON_RUNNER.md` (Python) + `apps/desktop/src-tauri/docs/adr/0004-sandbox-test-runner.md`.
 
 Stack: React 19 + TypeScript + Tailwind v4 (Vite) inside a Tauri 2.0 shell, Rust backend with SQLite + sqlite-vec, tree-sitter for JS/TS/Python.
 
@@ -73,7 +73,9 @@ packages/
 
 rules/rules.md       Canonical engineering rulebook (§1–12) — read before adding patterns
 docs/AGENT_WORKFLOW.md  PR/branch/CI contract
-plan/                Roadmap (ROADMAP.md) + design docs for multi-day work
+plan/                Roadmap (ROADMAP.md) + design docs for multi-day work,
+                     grouped by release under plan/versions/ (v1/, v2/ — see
+                     plan/versions/README.md)
 ```
 
 ### Rust backend layering (commands → services → repositories → db)

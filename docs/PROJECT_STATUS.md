@@ -158,14 +158,14 @@ tessera/
 
 All 6 phases complete and on master — opt-in Docker sandbox runs generated JS/TS
 test cases with pass/fail + line coverage painted on Monaco gutters. See
-[`plan/SANDBOX_TEST_RUNNER.md`](../plan/SANDBOX_TEST_RUNNER.md) and
+[`plan/versions/v1/SANDBOX_TEST_RUNNER.md`](../plan/versions/v1/SANDBOX_TEST_RUNNER.md) and
 [ADR-0004](../apps/desktop/src-tauri/docs/adr/0004-sandbox-test-runner.md).
 Python (`docker_py`) + cloud runners are next behind the same `TestRunner` trait.
 
 ### Shipped: Tessera Boards (merged 2026-06-05, #33 / #40)
 
 Jira-style project management inside the IDE, per
-[`plan/JIRA_INTEGRATION.md`](../plan/JIRA_INTEGRATION.md):
+[`plan/versions/v1/JIRA_INTEGRATION.md`](../plan/versions/v1/JIRA_INTEGRATION.md):
 - New `apps/server` — Rust/Axum HTTP + WebSocket server
 - Supabase/Postgres backend with RLS migrations and real-time sync
 - Teams → boards → sprints → issues with drag-drop kanban
@@ -184,7 +184,7 @@ normalization, actionable API errors.
 
 Upgrade the four artifact schemas (test cases, bug report, test plan, defect
 report) to industry-grade — IEEE 829 / ISO 29119-3 / ISTQB aligned. 3-phase plan
-at [`plan/ARTIFACT_QUALITY_V2.md`](../plan/ARTIFACT_QUALITY_V2.md).
+at [`plan/versions/v1/ARTIFACT_QUALITY_V2.md`](../plan/versions/v1/ARTIFACT_QUALITY_V2.md).
 
 ---
 
@@ -254,8 +254,8 @@ See [`plan/ROADMAP.md`](../plan/ROADMAP.md) for the full roadmap.
 | [CLAUDE.md](../CLAUDE.md) | AI coding agent guidance and project context |
 | [rules/rules.md](../rules/rules.md) | Engineering rules (16 sections, 458 lines) |
 | [plan/ROADMAP.md](../plan/ROADMAP.md) | Feature roadmap and known limitations |
-| [plan/SANDBOX_TEST_RUNNER.md](../plan/SANDBOX_TEST_RUNNER.md) | Sandbox runner implementation plan (6 phases) |
-| [plan/JIRA_INTEGRATION.md](../plan/JIRA_INTEGRATION.md) | Jira-like boards feature plan |
+| [plan/versions/v1/SANDBOX_TEST_RUNNER.md](../plan/versions/v1/SANDBOX_TEST_RUNNER.md) | Sandbox runner implementation plan (6 phases) |
+| [plan/versions/v1/JIRA_INTEGRATION.md](../plan/versions/v1/JIRA_INTEGRATION.md) | Jira-like boards feature plan |
 
 ### Architecture Decision Records
 

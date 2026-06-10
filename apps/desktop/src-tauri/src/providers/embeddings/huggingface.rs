@@ -1,6 +1,6 @@
 //! Hugging Face Inference API embedding provider.
 //!
-//! Cloud-only (`plan/EMBEDDING_PROVIDER_SELECT.md`): posts to the
+//! Cloud-only (`plan/versions/v1/EMBEDDING_PROVIDER_SELECT.md`): posts to the
 //! feature-extraction pipeline of the HF inference router. Unlike the
 //! `OpenAI` wire format, the model id rides in the URL path, the body is
 //! `{"inputs": [...]}`, and the response is a bare nested array of

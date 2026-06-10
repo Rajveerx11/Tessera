@@ -12,7 +12,7 @@ import { invokeAndParse, invokeVoid } from './invoke';
 /**
  * List every stored execution outcome (Actual output / Result + remarks)
  * for a test-cases artifact, so the Test Case table can LEFT JOIN them
- * onto the LLM cases on mount (plan/TEST_CASE_TABLE.md §4.1).
+ * onto the LLM cases on mount (plan/versions/v1/TEST_CASE_TABLE.md §4.1).
  */
 export async function listTestCaseResults(artifactId: string): Promise<TestCaseResult[]> {
   return invokeAndParse('list_test_case_results', z.array(TestCaseResultSchema), { artifactId });

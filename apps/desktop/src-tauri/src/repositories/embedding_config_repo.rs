@@ -5,7 +5,7 @@
 //! this module stores/retrieves ciphertext and nonce blobs without
 //! touching plaintext. Mirrors `provider_config_repo` shape, plus the
 //! embedding-specific `model` / `dimension` columns
-//! (`plan/EMBEDDING_PROVIDER_SELECT.md` §5.1).
+//! (`plan/versions/v1/EMBEDDING_PROVIDER_SELECT.md` §5.1).
 
 use chrono::Utc;
 use sqlx::SqlitePool;

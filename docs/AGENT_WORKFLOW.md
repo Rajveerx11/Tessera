@@ -138,7 +138,7 @@ ruleset — the merge button stays greyed out until all six are green:
 > `lint-and-test` merges the former `lint` + `unit-test` jobs, and
 > `frontend-checks` merges the former `typecheck` + `build-check`, to avoid
 > re-paying an identical toolchain setup twice (see
-> [`../plan/CI_JOB_CONSOLIDATION.md`](../plan/CI_JOB_CONSOLIDATION.md)). The
+> [`../plan/versions/v1/CI_JOB_CONSOLIDATION.md`](../plan/versions/v1/CI_JOB_CONSOLIDATION.md)). The
 > cross-platform `tauri build` runs in `release.yml` on tag pushes, not on PRs.
 
 A `CODEOWNERS` rule auto-requests review from the matching path

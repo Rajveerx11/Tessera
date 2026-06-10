@@ -12,13 +12,13 @@ the [README](../README.md).
 | Limitation | Impact | Planned solution |
 |---|---|---|
 | **Single-user only** — no team collaboration, sharing, or multi-user workspace | Limits enterprise adoption | Workspace sync via CRDTs (Yjs/Automerge) + optional cloud relay, keeping the local-first core |
-| ~~**No test execution**~~ — **shipped for JS/TS + Python:** opt-in Docker sandbox runs generated cases and reports pass/fail + coverage | Closed the generate→run→measure loop | Python shipped (`docker_py`, [`SANDBOX_PYTHON_RUNNER.md`](./SANDBOX_PYTHON_RUNNER.md)); Java/Go + cloud runners next, behind the same `TestRunner` trait + shared Docker harness |
-| ~~**Embedding provider lock-in**~~ — **shipped:** selectable embedding provider — local Ollama (default) or OpenAI / Gemini / Hugging Face cloud | RAG no longer gated on a local GPU | Done — see [`EMBEDDING_PROVIDER_SELECT.md`](./EMBEDDING_PROVIDER_SELECT.md). Possible future additions: Voyage AI / Cohere |
+| ~~**No test execution**~~ — **shipped for JS/TS + Python:** opt-in Docker sandbox runs generated cases and reports pass/fail + coverage | Closed the generate→run→measure loop | Python shipped (`docker_py`, [`SANDBOX_PYTHON_RUNNER.md`](./versions/v1/SANDBOX_PYTHON_RUNNER.md)); Java/Go + cloud runners next, behind the same `TestRunner` trait + shared Docker harness |
+| ~~**Embedding provider lock-in**~~ — **shipped:** selectable embedding provider — local Ollama (default) or OpenAI / Gemini / Hugging Face cloud | RAG no longer gated on a local GPU | Done — see [`EMBEDDING_PROVIDER_SELECT.md`](./versions/v1/EMBEDDING_PROVIDER_SELECT.md). Possible future additions: Voyage AI / Cohere |
 | **Minimal E2E coverage** — one Playwright spec, no error-path tests | UI-flow regressions go undetected | Expand to 10–15 specs: generation flow, provider switching, error states, export |
-| ~~**No export integrations**~~ — **shipped:** Excel/CSV/TSV + copy-as-TSV, Markdown + JSON export, and Jira Cloud push v1 (idempotent, per-artifact) | Artifacts flow to spreadsheets and Jira | Remaining: Jira v2 — epic/child bulk push, sandbox-run comments, status refresh, severity-map editor — Phase 3 in [`JIRA_INTEGRATION.md`](./JIRA_INTEGRATION.md). Linear / GitHub Issues adapters behind the same `IssueTracker` trait |
+| ~~**No export integrations**~~ — **shipped:** Excel/CSV/TSV + copy-as-TSV, Markdown + JSON export, and Jira Cloud push v1 (idempotent, per-artifact) | Artifacts flow to spreadsheets and Jira | Remaining: Jira v2 — epic/child bulk push, sandbox-run comments, status refresh, severity-map editor — Phase 3 in [`JIRA_INTEGRATION.md`](./versions/v1/JIRA_INTEGRATION.md). Linear / GitHub Issues adapters behind the same `IssueTracker` trait |
 | **No observability** — no coverage reports, perf metrics, or usage analytics | Hard to track quality over time | LCOV in CI, opt-in telemetry (PostHog/Plausible), bundle-size tracking |
 | **Static prompts** — v1 prompts are hardcoded | Power users can't tune generation | User-editable prompt templates with variable substitution + prompt A/B testing |
-| **Basic artifact schemas** — *mostly closed:* v2 IEEE 829 / ISO 29119-3 schemas shipped for all four artifacts (Phases 1–2 of [`ARTIFACT_QUALITY_V2.md`](./ARTIFACT_QUALITY_V2.md)) | Artifacts now carry repro steps, severity/priority split, scope + entry/exit criteria | Remaining: Phase 3 — few-shot exemplars in prompts, technique mandates (BVA / equivalence partitioning), golden integration tests vs live Ollama, token-budget re-check |
+| **Basic artifact schemas** — *mostly closed:* v2 IEEE 829 / ISO 29119-3 schemas shipped for all four artifacts (Phases 1–2 of [`ARTIFACT_QUALITY_V2.md`](./versions/v1/ARTIFACT_QUALITY_V2.md)) | Artifacts now carry repro steps, severity/priority split, scope + entry/exit criteria | Remaining: Phase 3 — few-shot exemplars in prompts, technique mandates (BVA / equivalence partitioning), golden integration tests vs live Ollama, token-budget re-check |
 
 ---
 
@@ -30,11 +30,11 @@ line coverage directly on the Monaco editor.
 **Edge:** closes the full generate → run → measure loop in one tool — no other AI
 testing tool does.
 **Status:** JS/TS slice shipped (opt-in, off by default) — see
-[`SANDBOX_TEST_RUNNER.md`](./SANDBOX_TEST_RUNNER.md) and
+[`SANDBOX_TEST_RUNNER.md`](./versions/v1/SANDBOX_TEST_RUNNER.md) and
 [ADR-0004](../apps/desktop/src-tauri/docs/adr/0004-sandbox-test-runner.md). Python
 slice shipped (`docker_py`: pytest + coverage.py) with the Docker hardening
 extracted into a shared harness — see
-[`SANDBOX_PYTHON_RUNNER.md`](./SANDBOX_PYTHON_RUNNER.md). Java/Go + cloud
+[`SANDBOX_PYTHON_RUNNER.md`](./versions/v1/SANDBOX_PYTHON_RUNNER.md). Java/Go + cloud
 runners reuse the same `TestRunner` trait next.
 
 ### 2. Mutation testing integration

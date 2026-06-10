@@ -114,7 +114,7 @@ pub fn run() {
             commands::providers::delete_provider_config,
             commands::providers::test_provider_connection,
             commands::providers::list_ollama_models,
-            // Embedding config commands (plan/EMBEDDING_PROVIDER_SELECT.md)
+            // Embedding config commands (plan/versions/v1/EMBEDDING_PROVIDER_SELECT.md)
             commands::embeddings::get_embedding_config,
             commands::embeddings::save_embedding_config,
             commands::embeddings::test_embedding_connection,
@@ -126,7 +126,7 @@ pub fn run() {
             commands::artifacts::list_artifact_versions,
             commands::artifacts::approve_artifact,
             commands::artifacts::reject_artifact,
-            // Artifact export commands (plan/ARTIFACT_EXPORT.md Phases 1-2)
+            // Artifact export commands (plan/versions/v1/ARTIFACT_EXPORT.md Phases 1-2)
             commands::exports::export_artifact,
             commands::exports::get_artifact_tsv,
             // Health / system commands

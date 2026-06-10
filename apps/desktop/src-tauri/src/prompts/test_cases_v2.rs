@@ -1,6 +1,6 @@
 //! Prompt template: per-function / per-module test cases, version 2.
 //!
-//! Industry-grade upgrade over `test_cases_v1` (`plan/ARTIFACT_QUALITY_V2.md`
+//! Industry-grade upgrade over `test_cases_v1` (`plan/versions/v1/ARTIFACT_QUALITY_V2.md`
 //! Phase 1): `TestRail` separated-steps pattern (`steps` is now
 //! `{ action, expectedResult }[]`), explicit case `type`
 //! (positive/negative/boundary/error/security), optional `testData`,
@@ -9,7 +9,7 @@
 //! is byte-identical to v1 — the sandbox runner contract is unchanged.
 //!
 //! The runnable-files instruction is language-conditional
-//! (`plan/SANDBOX_PYTHON_RUNNER.md` §7): JS/TS scopes get the original
+//! (`plan/versions/v1/SANDBOX_PYTHON_RUNNER.md` §7): JS/TS scopes get the original
 //! vitest wording (byte-identical, locked by the existing snapshots);
 //! Python scopes get a pytest variant whose test-function naming
 //! convention (`test_<tc_id_snake>__<description>`) the `docker_py`
@@ -85,7 +85,7 @@ The structured payload MUST have the following JSON structure:
 }";
 
 /// Python variant of [`SYSTEM_INSTRUCTIONS`]
-/// (`plan/SANDBOX_PYTHON_RUNNER.md` §7): identical case rules, but the
+/// (`plan/versions/v1/SANDBOX_PYTHON_RUNNER.md` §7): identical case rules, but the
 /// runnable `files[]` are pytest files (stdlib + pytest only — the sandbox
 /// has no third-party packages and no network) and the case-id bridge
 /// lives in the test *function name*, since Python identifiers cannot
@@ -149,7 +149,7 @@ The structured payload MUST have the following JSON structure:
   ]
 }";
 
-/// Whether the generation scope is Python (`plan/SANDBOX_PYTHON_RUNNER.md`
+/// Whether the generation scope is Python (`plan/versions/v1/SANDBOX_PYTHON_RUNNER.md`
 /// §7). The chunks carry no file paths, so detection uses the caller's
 /// `scope_hint` extension when one is present, falling back to a
 /// deterministic syntax vote over the chunk contents. Ties (no signal
@@ -489,7 +489,7 @@ mod tests {
 
     #[test]
     fn prompt_requires_tc_id_prefixed_spec_titles() {
-        // plan/TEST_CASE_TABLE.md §4.2 name→id bridge: specs must lead
+        // plan/versions/v1/TEST_CASE_TABLE.md §4.2 name→id bridge: specs must lead
         // with the case id so sandbox results re-attach to the case.
         assert!(SYSTEM_INSTRUCTIONS.contains("MUST begin with the"));
         assert!(SYSTEM_INSTRUCTIONS.contains("TC-LOGIN-01 rejects empty password"));

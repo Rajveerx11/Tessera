@@ -1,7 +1,7 @@
 //! xlsx workbook writer over the export IR (`rust_xlsxwriter` — pure
 //! Rust, no JS/zip shelling).
 //!
-//! Formatting (see `plan/ARTIFACT_EXPORT.md` §5):
+//! Formatting (see `plan/versions/v1/ARTIFACT_EXPORT.md` §5):
 //!
 //! - One worksheet per section; names sanitized to Excel's rules
 //!   (≤ 31 chars, no `[ ] : * ? / \`), deduped with a numeric suffix.

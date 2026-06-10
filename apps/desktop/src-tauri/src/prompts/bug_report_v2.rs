@@ -1,6 +1,6 @@
 //! Prompt template: bug report (runtime issue), version 2.
 //!
-//! Industry-grade upgrade over `bug_report_v1` (`plan/ARTIFACT_QUALITY_V2.md`
+//! Industry-grade upgrade over `bug_report_v1` (`plan/versions/v1/ARTIFACT_QUALITY_V2.md`
 //! Phase 1), aligned with ISTQB / issue-tracker conventions: severity
 //! (5-level, impact) split from priority (urgency), `reproducibility`,
 //! optional `workaround` and `component`, and `stepsToReproduce` with

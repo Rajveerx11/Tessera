@@ -190,7 +190,7 @@ fn snapshot_test_cases_v2_tool() {
 }
 
 /// Python-scope variant of the test-cases prompt
-/// (`plan/SANDBOX_PYTHON_RUNNER.md` §7): a `.py` scope hint swaps the
+/// (`plan/versions/v1/SANDBOX_PYTHON_RUNNER.md` §7): a `.py` scope hint swaps the
 /// runnable-files instruction to pytest. The JS/TS wording stays locked by
 /// `test_cases_v2_messages` above — unchanged there proves the JS path is
 /// byte-identical.
