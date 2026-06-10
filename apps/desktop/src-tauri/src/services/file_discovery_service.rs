@@ -57,6 +57,7 @@ pub enum SourceLanguage {
     JavaScript,
     TypeScript,
     Python,
+    Go,
     Unknown,
 }
 
@@ -245,6 +246,7 @@ fn source_language(ext: &str) -> Option<SourceLanguage> {
         "js" | "jsx" | "mjs" | "cjs" => Some(SourceLanguage::JavaScript),
         "ts" | "tsx" | "mts" | "cts" => Some(SourceLanguage::TypeScript),
         "py" | "pyi" => Some(SourceLanguage::Python),
+        "go" => Some(SourceLanguage::Go),
         _ => None,
     }
 }
@@ -328,10 +330,11 @@ mod tests {
         let root = tmp_root();
         write(&root.join("src/main.ts"), b"export const x = 1;");
         write(&root.join("src/util.py"), b"def f(): pass\n");
+        write(&root.join("src/main.go"), b"package main\nfunc main() {}\n");
         write(&root.join("README.md"), b"# project\n");
 
         let report = discover(&root).expect("discover");
-        assert_eq!(report.files.len(), 3);
+        assert_eq!(report.files.len(), 4);
 
         let by_path: std::collections::HashMap<_, _> = report
             .files
@@ -344,6 +347,8 @@ mod tests {
         assert_eq!(by_path["src/main.ts"].language, SourceLanguage::TypeScript);
         assert_eq!(by_path["src/util.py"].file_type, FileType::Source);
         assert_eq!(by_path["src/util.py"].language, SourceLanguage::Python);
+        assert_eq!(by_path["src/main.go"].file_type, FileType::Source);
+        assert_eq!(by_path["src/main.go"].language, SourceLanguage::Go);
 
         fs::remove_dir_all(&root).ok();
     }

@@ -119,6 +119,7 @@ async fn run_pipeline(
             SourceLanguage::JavaScript => Some("javascript".to_string()),
             SourceLanguage::TypeScript => Some("typescript".to_string()),
             SourceLanguage::Python => Some("python".to_string()),
+            SourceLanguage::Go => Some("go".to_string()),
             SourceLanguage::Unknown => None,
         };
 
