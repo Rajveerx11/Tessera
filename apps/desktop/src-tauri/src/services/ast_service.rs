@@ -1,6 +1,6 @@
 //! Tree-sitter-backed AST extraction for source files.
 //!
-//! Phase 3 ships JavaScript / TypeScript / Python only. Each parsed
+//! Covers JavaScript / TypeScript / Python / Go. Each parsed
 //! file produces a [`ParsedFile`] containing the declarations the
 //! chunker (Phase 3 step 3) and the prompt assembler (Phase 4) need to
 //! reason about: functions, classes, imports, exports.
@@ -91,6 +91,7 @@ pub fn parse(source: &str, language: SourceLanguage) -> AppResult<ParsedFile> {
         SourceLanguage::JavaScript => tree_sitter_javascript::language(),
         SourceLanguage::TypeScript => tree_sitter_typescript::language_typescript(),
         SourceLanguage::Python => tree_sitter_python::language(),
+        SourceLanguage::Go => tree_sitter_go::language(),
         SourceLanguage::Unknown => {
             return Err(AppError::InvalidInput(
                 "no Tree-sitter grammar available for Unknown language".into(),
@@ -160,6 +161,7 @@ fn classify_node(node: Node<'_>, source: &str, language: SourceLanguage, out: &m
             classify_js_ts(node, source, out);
         }
         SourceLanguage::Python => classify_python(node, source, out),
+        SourceLanguage::Go => classify_go(node, source, out),
         SourceLanguage::Unknown => {}
     }
 }
@@ -207,6 +209,45 @@ fn classify_python(node: Node<'_>, source: &str, out: &mut ParsedFile) {
                 source: module,
                 line: line_of(node),
             });
+        }
+        _ => {}
+    }
+}
+
+fn classify_go(node: Node<'_>, source: &str, out: &mut ParsedFile) {
+    match node.kind() {
+        "function_declaration" => {
+            push_declaration(node, source, DeclarationKind::Function, "name", out);
+        }
+        "method_declaration" => {
+            push_declaration(node, source, DeclarationKind::Method, "name", out);
+        }
+        // `type Foo struct { ... }`. Tree-sitter-go nests the name +
+        // type under a `type_spec`; tag structs as `Class` so downstream
+        // chunking treats them like the aggregate types they are
+        // (mirrors how Python classes are tagged). Non-struct type specs
+        // (interfaces, aliases) are skipped — Phase 3 only chunks
+        // function/method/struct boundaries.
+        "type_spec"
+            if node
+                .child_by_field_name("type")
+                .is_some_and(|t| t.kind() == "struct_type") =>
+        {
+            push_declaration(node, source, DeclarationKind::Class, "name", out);
+        }
+        // Matches both the single `import "fmt"` form and each spec
+        // inside a grouped `import ( ... )` block, since the walk
+        // recurses through `import_spec_list`.
+        "import_spec" => {
+            if let Some(text) = node
+                .child_by_field_name("path")
+                .and_then(|p| p.utf8_text(source.as_bytes()).ok())
+            {
+                out.imports.push(Import {
+                    source: text.trim_matches('"').to_string(),
+                    line: line_of(node),
+                });
+            }
         }
         _ => {}
     }
@@ -426,6 +467,71 @@ from typing import Optional, List
         assert!(sources.contains(&"sys"));
         assert!(sources.contains(&"collections"));
         assert!(sources.contains(&"typing"));
+    }
+
+    #[test]
+    fn go_extracts_functions_and_methods() {
+        let source = r"
+package main
+
+func Add(a int, b int) int {
+    return a + b
+}
+
+func (c *Counter) Increment() {
+    c.count++
+}
+";
+        let parsed = parse(source, SourceLanguage::Go).expect("parse");
+        let names: Vec<&str> = parsed
+            .declarations
+            .iter()
+            .map(|d| d.name.as_str())
+            .collect();
+        assert!(names.contains(&"Add"));
+        assert!(names.contains(&"Increment"));
+        let kinds: Vec<DeclarationKind> =
+            parsed.declarations.iter().map(|d| d.kind.clone()).collect();
+        assert!(kinds.contains(&DeclarationKind::Function));
+        assert!(kinds.contains(&DeclarationKind::Method));
+    }
+
+    #[test]
+    fn go_extracts_struct_as_class() {
+        let source = r"
+package main
+
+type Counter struct {
+    count int
+}
+";
+        let parsed = parse(source, SourceLanguage::Go).expect("parse");
+        let counter = parsed
+            .declarations
+            .iter()
+            .find(|d| d.name == "Counter")
+            .expect("struct declaration");
+        assert_eq!(counter.kind, DeclarationKind::Class);
+        assert!(counter.end_byte > counter.start_byte);
+    }
+
+    #[test]
+    fn go_extracts_imports_single_and_grouped() {
+        let source = r#"
+package main
+
+import "fmt"
+
+import (
+    "os"
+    "strings"
+)
+"#;
+        let parsed = parse(source, SourceLanguage::Go).expect("parse");
+        let sources: Vec<&str> = parsed.imports.iter().map(|i| i.source.as_str()).collect();
+        assert!(sources.contains(&"fmt"));
+        assert!(sources.contains(&"os"));
+        assert!(sources.contains(&"strings"));
     }
 
     #[test]
