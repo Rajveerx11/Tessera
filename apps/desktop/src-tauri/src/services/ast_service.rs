@@ -1,6 +1,6 @@
 //! Tree-sitter-backed AST extraction for source files.
 //!
-//! Phase 3 ships JavaScript / TypeScript / Python only. Each parsed
+//! Covers JavaScript / TypeScript / Python / Go. Each parsed
 //! file produces a [`ParsedFile`] containing the declarations the
 //! chunker (Phase 3 step 3) and the prompt assembler (Phase 4) need to
 //! reason about: functions, classes, imports, exports.

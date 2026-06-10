@@ -274,6 +274,8 @@ fn is_config_filename(lower: &str) -> bool {
             | ".env.example"
             | "dockerfile"
             | "makefile"
+            | "go.mod"
+            | "go.sum"
     )
 }
 
@@ -285,6 +287,8 @@ fn is_test_path(lower: &str) -> bool {
         || lower.contains(".spec.")
         || lower.starts_with("test_")
         || lower.contains("/test_")
+        // Go's universal convention: files ending in `_test.go` are tests.
+        || lower.ends_with("_test.go")
 }
 
 fn is_documentation(lower: &str, ext: &str) -> bool {
@@ -359,6 +363,8 @@ mod tests {
         write(&root.join("src/util.py"), b"def f(): pass");
         write(&root.join("tests/test_util.py"), b"def test_f(): pass");
         write(&root.join("__tests__/foo.test.ts"), b"export {}");
+        write(&root.join("pkg/util.go"), b"package pkg\nfunc F() {}\n");
+        write(&root.join("pkg/util_test.go"), b"package pkg\nfunc TestF() {}\n");
 
         let report = discover(&root).expect("discover");
         let by_path: std::collections::HashMap<_, _> = report
@@ -370,6 +376,8 @@ mod tests {
         assert_eq!(by_path["src/util.py"], FileType::Source);
         assert_eq!(by_path["tests/test_util.py"], FileType::Test);
         assert_eq!(by_path["__tests__/foo.test.ts"], FileType::Test);
+        assert_eq!(by_path["pkg/util.go"], FileType::Source);
+        assert_eq!(by_path["pkg/util_test.go"], FileType::Test);
 
         fs::remove_dir_all(&root).ok();
     }
