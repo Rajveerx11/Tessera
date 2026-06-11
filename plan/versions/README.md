@@ -39,3 +39,4 @@ Conventions:
 | Doc | Feature |
 |---|---|
 | [`V2_VISION.md`](./v2/V2_VISION.md) | v2 theme, research findings, and prioritized feature list |
+| [`v2-feature-docs/FLAKY_TEST_DETECTION.md`](./v2/v2-feature-docs/FLAKY_TEST_DETECTION.md) | Flaky-test detection — run the suite N times, flag non-deterministic cases |

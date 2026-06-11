@@ -1,7 +1,8 @@
 # Tessera v2 — Vision & Prioritized Feature List
 
 > Status: **draft** — research + prioritization done (2026-06-10); individual
-> feature design docs to follow in this folder · Owner: core
+> feature design docs land under [`v2-feature-docs/`](./v2-feature-docs/) as they
+> are specced (first: flaky-test detection, P2 #7) · Owner: core
 
 ## 1. Theme
 
@@ -74,7 +75,12 @@ the moat v2 builds on.
 ### P2 — differentiation + polish
 
 7. **Flaky-test detection.** Run the suite N times in the sandbox, flag
-   non-deterministic cases. Cheap given the harness.
+   non-deterministic cases. Cheap given the harness. **First v2 feature
+   specced** — design doc:
+   [`v2-feature-docs/FLAKY_TEST_DETECTION.md`](./v2-feature-docs/FLAKY_TEST_DETECTION.md).
+   N-run loop (default 5, adjustable 2–20) + per-test
+   stable-pass / stable-fail / flaky verdict, reusing the v1 sandbox harness
+   with no DB migration.
 8. **Multi-model consensus panel** (ROADMAP standout #4). Same prompt against
    2–3 providers, side-by-side artifacts, disagreement highlighting.
 9. **Test impact graph** (ROADMAP standout #5). Call-graph visualization of
