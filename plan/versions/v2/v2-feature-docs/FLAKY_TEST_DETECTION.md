@@ -1,8 +1,17 @@
 # Flaky-test detection
 
-> Status: **planned** (v2, P2 #7) — design ready, not yet implemented · Owner: core
+> Status: **shipped** (v2, P2 #7) — first slice (§3) implemented · Owner: core
 > Depends on: the opt-in Docker sandbox runner (v1 — SANDBOX_TEST_RUNNER.md,
 > SANDBOX_PYTHON_RUNNER.md). Reuses its hardened harness verbatim.
+>
+> Implemented on branch `feat/flaky-test-detection`: backend `TestVerdict` /
+> `FlakyTestResult` / `FlakyRunResult` + the pure `aggregate_flaky` (mod.rs),
+> `sandbox_service::run_flaky` (shared preamble extracted from `run`), the
+> `run_test_sandbox_flaky` command, the Zod mirror + round-trip contract test,
+> the `runTestSandboxFlaky` IPC wrapper, and the "Check flaky" UI (runs stepper
+> + `FlakyResultView`). The **hardening / Future items (§7)** — persisted
+> history, CLI/Action surfacing, auto-quarantine, cross-run coverage — remain
+> deferred.
 
 ## 0. Where this sits in v2
 
