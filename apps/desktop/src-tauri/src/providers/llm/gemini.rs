@@ -33,7 +33,15 @@ pub const DEFAULT_BASE_URL: &str = "https://generativelanguage.googleapis.com";
 /// Path of the OpenAI-compatible surface relative to the base URL.
 pub const OPENAI_COMPAT_PATH: &str = "/v1beta/openai";
 
-const DEFAULT_TIMEOUT_SECONDS: u64 = 120;
+/// Cap on establishing the TCP+TLS connection — fast-fails an
+/// unreachable endpoint without consuming the read budget.
+const CONNECT_TIMEOUT_SECONDS: u64 = 30;
+
+/// Idle/read timeout for the streaming response: the maximum gap
+/// allowed *between* SSE chunks, not a deadline on the whole request. A
+/// total `.timeout()` would abort long but healthy generations; an idle
+/// timeout only fires when the provider goes silent.
+const STREAM_READ_TIMEOUT_SECONDS: u64 = 120;
 
 /// Google Gemini provider.
 #[derive(Debug, Clone)]
@@ -85,7 +93,8 @@ impl GeminiProvider {
         auth_value.set_sensitive(true);
 
         let client = Client::builder()
-            .timeout(Duration::from_secs(DEFAULT_TIMEOUT_SECONDS))
+            .connect_timeout(Duration::from_secs(CONNECT_TIMEOUT_SECONDS))
+            .read_timeout(Duration::from_secs(STREAM_READ_TIMEOUT_SECONDS))
             .build()
             .map_err(|e| LlmError::ProviderUnavailable {
                 provider: PROVIDER_NAME,

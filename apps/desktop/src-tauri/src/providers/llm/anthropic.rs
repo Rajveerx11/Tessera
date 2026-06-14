@@ -25,7 +25,7 @@ use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
 use reqwest::Client;
 use serde::Deserialize;
 
-use super::error::LlmError;
+use super::error::{describe_error_chain, LlmError};
 use super::openai_compat;
 use super::types::{
     Chunk, FinishReason, GenerateRequest, Message, ProviderCapabilities, Role, ToolSchema, Usage,
@@ -41,7 +41,15 @@ pub const DEFAULT_BASE_URL: &str = "https://api.anthropic.com";
 /// API version pinned for stable wire-format guarantees.
 pub const ANTHROPIC_VERSION: &str = "2023-06-01";
 
-const DEFAULT_TIMEOUT_SECONDS: u64 = 120;
+/// Cap on establishing the TCP+TLS connection — fast-fails an
+/// unreachable endpoint without consuming the read budget.
+const CONNECT_TIMEOUT_SECONDS: u64 = 30;
+
+/// Idle/read timeout for the streaming response: the maximum gap
+/// allowed *between* SSE chunks, not a deadline on the whole request. A
+/// total `.timeout()` would abort long but healthy generations; an idle
+/// timeout only fires when the provider goes silent.
+const STREAM_READ_TIMEOUT_SECONDS: u64 = 120;
 
 /// Default `max_tokens` if caller does not supply one. Anthropic
 /// requires the field; `4096` is a sane upper bound for most artifact
@@ -89,7 +97,8 @@ impl AnthropicProvider {
         auth_value.set_sensitive(true);
 
         let client = Client::builder()
-            .timeout(Duration::from_secs(DEFAULT_TIMEOUT_SECONDS))
+            .connect_timeout(Duration::from_secs(CONNECT_TIMEOUT_SECONDS))
+            .read_timeout(Duration::from_secs(STREAM_READ_TIMEOUT_SECONDS))
             .build()
             .map_err(|e| LlmError::ProviderUnavailable {
                 provider: PROVIDER_NAME,
@@ -180,7 +189,9 @@ impl LlmProvider for AnthropicProvider {
             while let Some(bytes) = byte_stream.next().await {
                 let bytes = bytes.map_err(|e| LlmError::StreamInterrupted {
                     provider: PROVIDER_NAME,
-                    message: e.to_string(),
+                    // Keep reqwest's `source()` chain — the bare display
+                    // is the opaque "error decoding response body".
+                    message: describe_error_chain(&e),
                 })?;
                 let text = std::str::from_utf8(&bytes).map_err(|e| LlmError::StreamInterrupted {
                     provider: PROVIDER_NAME,

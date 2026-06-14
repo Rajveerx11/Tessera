@@ -20,12 +20,19 @@ use crate::utils::provider_base_url::normalize_ollama_base_url;
 /// Provider name used in `LlmError::provider` and logs.
 pub const PROVIDER_NAME: &str = "ollama";
 
-/// Conservative default — long generations against a slow local model
-/// must not be cut off. 10 minutes covers cold-start model loads on
-/// memory-constrained CI runners (GitHub Actions free tier: 2 vCPU,
-/// 7 GB RAM) where a 3B-parameter chat model can take 5+ minutes for
-/// a single tool-call response with 1500+ output tokens.
-const DEFAULT_TIMEOUT_SECONDS: u64 = 600;
+/// Cap on establishing the local connection — fast-fails when the
+/// Ollama daemon is not running instead of waiting on the read budget.
+const CONNECT_TIMEOUT_SECONDS: u64 = 30;
+
+/// Idle/read timeout — the maximum gap allowed *between* reads, not a
+/// deadline on the whole request. Generous (10 minutes) because a
+/// cold-start model load on a memory-constrained CI runner (GitHub
+/// Actions free tier: 2 vCPU, 7 GB RAM) can stall for 5+ minutes before
+/// the first byte arrives, and a 3B chat model streams slowly for a
+/// 1500+ token tool-call response. Using an idle read timeout instead
+/// of a total `.timeout()` means a healthy-but-slow generation is never
+/// cut off mid-stream — only a genuinely stalled connection is.
+const STREAM_READ_TIMEOUT_SECONDS: u64 = 600;
 
 /// Ollama provider. Holds an HTTP client and the resolved base URL.
 #[derive(Debug, Clone)]
@@ -46,7 +53,8 @@ impl OllamaProvider {
     /// rejects rustls).
     pub fn new(base_url: impl Into<String>) -> Result<Self, LlmError> {
         let client = Client::builder()
-            .timeout(Duration::from_secs(DEFAULT_TIMEOUT_SECONDS))
+            .connect_timeout(Duration::from_secs(CONNECT_TIMEOUT_SECONDS))
+            .read_timeout(Duration::from_secs(STREAM_READ_TIMEOUT_SECONDS))
             .build()
             .map_err(|e| LlmError::ProviderUnavailable {
                 provider: PROVIDER_NAME,
