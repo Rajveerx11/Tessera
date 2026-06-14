@@ -99,9 +99,13 @@ pub fn describe_error_chain(err: &dyn std::error::Error) -> String {
     let mut current = err.source();
     while let Some(cause) = current {
         let rendered = cause.to_string();
-        // Skip links whose text is already present (reqwest sometimes
-        // nests the same string) so the message never reads "x: x".
-        if !rendered.is_empty() && !message.contains(&rendered) {
+        // Skip a link only when the message already *ends* with its text
+        // — the case where an outer error's Display already appended its
+        // source (`write!("{outer}: {source}")`), so re-appending would
+        // read "x: x". Using `ends_with` rather than `contains` avoids
+        // dropping a short but distinct cause (e.g. "read") that merely
+        // appears as a substring of an earlier link.
+        if !rendered.is_empty() && !message.ends_with(&rendered) {
             message.push_str(": ");
             message.push_str(&rendered);
         }
@@ -290,5 +294,25 @@ mod tests {
         };
         // The duplicated link must not produce "x: x".
         assert_eq!(describe_error_chain(&err), "operation timed out");
+    }
+
+    #[test]
+    fn describe_error_chain_keeps_substring_cause_that_is_not_a_suffix() {
+        // "read" is a substring of the top-level message but a distinct
+        // link in the chain — it must be preserved, not deduped away.
+        let err = StubError {
+            message: "error decoding response body",
+            source: Some(Box::new(StubError {
+                message: "read",
+                source: Some(Box::new(StubError {
+                    message: "connection reset",
+                    source: None,
+                })),
+            })),
+        };
+        assert_eq!(
+            describe_error_chain(&err),
+            "error decoding response body: read: connection reset"
+        );
     }
 }
