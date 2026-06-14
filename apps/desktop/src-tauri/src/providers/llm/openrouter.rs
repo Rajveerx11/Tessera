@@ -33,7 +33,18 @@ pub const DEFAULT_REFERER: &str = "https://github.com/Rajveerx11/Tessera";
 // same meaning to the OpenRouter leaderboard parser.
 pub const DEFAULT_TITLE: &str = "Tessera - AI Testing IDE";
 
-const DEFAULT_TIMEOUT_SECONDS: u64 = 120;
+/// Cap on establishing the TCP+TLS connection. Fast-fails an
+/// unreachable endpoint without waiting on the (much longer) read
+/// budget below.
+const CONNECT_TIMEOUT_SECONDS: u64 = 30;
+
+/// Idle/read timeout for the streaming response — the maximum gap
+/// allowed *between* SSE chunks, not a deadline on the whole request.
+/// A total `.timeout()` would abort long but healthy generations
+/// (test-case output is the heaviest artifact and routinely streams
+/// past two minutes on slower `OpenRouter` models); an idle timeout only
+/// fires when the provider truly goes silent.
+const STREAM_READ_TIMEOUT_SECONDS: u64 = 120;
 
 /// `OpenRouter` provider.
 #[derive(Debug, Clone)]
@@ -114,7 +125,8 @@ impl OpenRouterProvider {
         auth_value.set_sensitive(true);
 
         let client = Client::builder()
-            .timeout(Duration::from_secs(DEFAULT_TIMEOUT_SECONDS))
+            .connect_timeout(Duration::from_secs(CONNECT_TIMEOUT_SECONDS))
+            .read_timeout(Duration::from_secs(STREAM_READ_TIMEOUT_SECONDS))
             .build()
             .map_err(|e| LlmError::ProviderUnavailable {
                 provider: PROVIDER_NAME,

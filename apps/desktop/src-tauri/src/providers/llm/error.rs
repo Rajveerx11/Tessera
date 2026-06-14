@@ -84,6 +84,36 @@ pub enum LlmError {
     },
 }
 
+/// Render `err` together with its full `source()` chain.
+///
+/// reqwest collapses a streaming-body failure into the unhelpful
+/// top-level `"error decoding response body"`; the actionable root
+/// cause (`connection closed before message completed`, `operation
+/// timed out`, a TLS/IO read error, …) lives one or more links down the
+/// `source()` chain. `to_string()` alone drops it, which is why
+/// `StreamInterrupted` errors were previously opaque. Walking the chain
+/// keeps the real reason in the message so the failure is diagnosable.
+#[must_use]
+pub fn describe_error_chain(err: &dyn std::error::Error) -> String {
+    let mut message = err.to_string();
+    let mut current = err.source();
+    while let Some(cause) = current {
+        let rendered = cause.to_string();
+        // Skip a link only when the message already *ends* with its text
+        // — the case where an outer error's Display already appended its
+        // source (`write!("{outer}: {source}")`), so re-appending would
+        // read "x: x". Using `ends_with` rather than `contains` avoids
+        // dropping a short but distinct cause (e.g. "read") that merely
+        // appears as a substring of an earlier link.
+        if !rendered.is_empty() && !message.ends_with(&rendered) {
+            message.push_str(": ");
+            message.push_str(&rendered);
+        }
+        current = cause.source();
+    }
+    message
+}
+
 impl LlmError {
     /// Convenience constructor: convert a `reqwest::Error` into the
     /// closest matching variant. Connection / DNS / TLS failures map to
@@ -213,5 +243,76 @@ mod tests {
             retry_after_seconds: Some(45),
         };
         assert!(err.to_string().contains("45"));
+    }
+
+    #[derive(Debug)]
+    struct StubError {
+        message: &'static str,
+        source: Option<Box<StubError>>,
+    }
+
+    impl std::fmt::Display for StubError {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            f.write_str(self.message)
+        }
+    }
+
+    impl std::error::Error for StubError {
+        fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+            self.source
+                .as_deref()
+                .map(|s| s as &(dyn std::error::Error + 'static))
+        }
+    }
+
+    #[test]
+    fn describe_error_chain_appends_nested_sources() {
+        // Mirrors reqwest's shape: a generic top-level body-decode
+        // message wrapping the real transport cause.
+        let err = StubError {
+            message: "error decoding response body",
+            source: Some(Box::new(StubError {
+                message: "connection closed before message completed",
+                source: None,
+            })),
+        };
+        let rendered = describe_error_chain(&err);
+        assert_eq!(
+            rendered,
+            "error decoding response body: connection closed before message completed"
+        );
+    }
+
+    #[test]
+    fn describe_error_chain_skips_duplicate_link_text() {
+        let err = StubError {
+            message: "operation timed out",
+            source: Some(Box::new(StubError {
+                message: "operation timed out",
+                source: None,
+            })),
+        };
+        // The duplicated link must not produce "x: x".
+        assert_eq!(describe_error_chain(&err), "operation timed out");
+    }
+
+    #[test]
+    fn describe_error_chain_keeps_substring_cause_that_is_not_a_suffix() {
+        // "read" is a substring of the top-level message but a distinct
+        // link in the chain — it must be preserved, not deduped away.
+        let err = StubError {
+            message: "error decoding response body",
+            source: Some(Box::new(StubError {
+                message: "read",
+                source: Some(Box::new(StubError {
+                    message: "connection reset",
+                    source: None,
+                })),
+            })),
+        };
+        assert_eq!(
+            describe_error_chain(&err),
+            "error decoding response body: read: connection reset"
+        );
     }
 }

@@ -21,7 +21,7 @@ use reqwest::header::HeaderMap;
 use reqwest::Client;
 use serde::Deserialize;
 
-use super::error::LlmError;
+use super::error::{describe_error_chain, LlmError};
 use super::types::{Chunk, FinishReason, GenerateRequest, Message, Role, ToolSchema, Usage};
 use super::ChunkStream;
 
@@ -120,7 +120,11 @@ pub fn stream_chat_completions(req: ChatRequest<'_>) -> ChunkStream {
         while let Some(bytes) = byte_stream.next().await {
             let bytes = bytes.map_err(|e| LlmError::StreamInterrupted {
                 provider,
-                message: e.to_string(),
+                // `e.to_string()` alone is just reqwest's opaque
+                // "error decoding response body"; keep the source chain
+                // so the real cause (idle/read timeout, upstream
+                // connection drop, …) is visible.
+                message: describe_error_chain(&e),
             })?;
 
             let text = std::str::from_utf8(&bytes).map_err(|e| LlmError::StreamInterrupted {
