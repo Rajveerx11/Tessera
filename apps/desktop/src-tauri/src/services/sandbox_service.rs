@@ -170,7 +170,7 @@ pub async fn run(request: RunRequest, deps: &SandboxDeps<'_>) -> AppResult<RunRe
 
     match outcome {
         Ok(output) => {
-            persist_success(deps, &run_id, &artifact.id, output, duration_ms, &case_ids).await?;
+            persist_success(deps, &run_id, &artifact.id, output, duration_ms, &case_ids, true).await?;
         }
         Err(err) => persist_failure(deps, &run_id, &artifact.id, &err, duration_ms).await?,
     }
@@ -359,7 +359,9 @@ pub async fn run_flaky(
     //    duration is iteration #1's execution time, captured in the loop above.
     let first = outputs[0].clone();
     let run_id = open_run_row(deps, &artifact, runner.name()).await?;
-    persist_success(deps, &run_id, &artifact.id, first, first_duration_ms, &case_ids).await?;
+    // `post_jira_comment = false`: iteration #1 is one of N runs; posting its
+    // lone pass/fail to Jira would misrepresent the overall flaky verdict.
+    persist_success(deps, &run_id, &artifact.id, first, first_duration_ms, &case_ids, false).await?;
 
     // 5. Classify every test across all N iterations and tally the summary.
     let tests = aggregate_flaky(&outputs, total_runs);
@@ -389,6 +391,12 @@ pub fn request_cancel(registry: &RunRegistry, run_id: &str) -> bool {
 }
 
 /// Persist a completed run's cases, coverage, and terminal status.
+///
+/// `post_jira_comment` gates the per-run Jira comment: a single [`run`] posts
+/// its result, but a flaky check passes `false` — its persisted iteration #1 is
+/// only one of N runs, so posting that single run's pass/fail to Jira would
+/// misrepresent the overall flaky verdict (a test can pass on run #1 yet be
+/// flaky). Surfacing the flaky verdict to trackers is deferred to §7 hardening.
 async fn persist_success(
     deps: &SandboxDeps<'_>,
     run_id: &str,
@@ -396,6 +404,7 @@ async fn persist_success(
     output: RunnerOutput,
     duration_ms: u32,
     case_ids: &HashSet<String>,
+    post_jira_comment: bool,
 ) -> AppResult<()> {
     // Capture insert errors instead of `?`-returning, so `finalize_run` is
     // always reached. Otherwise a failure between the two inserts (e.g.
@@ -435,16 +444,18 @@ async fn persist_success(
     // run, whose canonical state is already persisted above.
     bridge_sandbox_results(deps, run_id, artifact_id, &output.tests, case_ids).await;
 
-    if let Some(crypto) = deps.crypto {
-        let _ = crate::services::jira_push_service::post_run_comment(
-            deps.pool,
-            crypto,
-            artifact_id,
-            status.as_str(),
-            passed_count,
-            failed_count,
-        )
-        .await;
+    if post_jira_comment {
+        if let Some(crypto) = deps.crypto {
+            let _ = crate::services::jira_push_service::post_run_comment(
+                deps.pool,
+                crypto,
+                artifact_id,
+                status.as_str(),
+                passed_count,
+                failed_count,
+            )
+            .await;
+        }
     }
 
     write_err.map_or(Ok(()), Err)
@@ -1813,6 +1824,102 @@ mod tests {
         .await
         .expect_err("must reject opt-out before any run");
         assert_eq!(err.code(), "INVALID_INPUT");
+
+        pool.close().await;
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn run_flaky_does_not_post_jira_comment_for_iteration_one() {
+        // A flaky check persists iteration #1 like a normal run, but must NOT
+        // post that single run's pass/fail to Jira — it would misrepresent the
+        // overall flaky verdict. Mirror the positive `run` Jira test, asserting
+        // the comment endpoint is hit zero times.
+        let (pool, path) = open_pool().await;
+        let artifact_id = seed_artifact(&pool, ArtifactType::TestCases).await;
+
+        let mut server = mockito::Server::new_async().await;
+        let mock = server
+            .mock("POST", "/rest/api/2/issue/PROJ-123/comment")
+            .with_status(201)
+            .with_body(r#"{"id":"comment-123"}"#)
+            .expect(0)
+            .create_async()
+            .await;
+
+        let crypto = crate::utils::crypto::CryptoKey::from_bytes([99u8; 32]);
+        let (ciphertext, nonce) = crypto.encrypt(b"token-xyz").expect("encrypt");
+        let now = chrono::Utc::now().to_rfc3339();
+        sqlx::query(
+            "INSERT INTO tracker_configs \
+             (id, user_id, tracker, site_url, email, api_token_encrypted, api_token_nonce, \
+              project_key, issue_type, severity_map_json, is_active, created_at, updated_at) \
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        )
+        .bind(Uuid::new_v4().to_string())
+        .bind("00000000-0000-4000-8000-000000000001")
+        .bind("jira")
+        .bind(server.url())
+        .bind("email@acme.com")
+        .bind(&ciphertext)
+        .bind(&nonce)
+        .bind("PROJ")
+        .bind("Task")
+        .bind(None::<String>)
+        .bind(1)
+        .bind(&now)
+        .bind(&now)
+        .execute(&pool)
+        .await
+        .expect("config insert");
+        sqlx::query(
+            "INSERT INTO external_links \
+             (id, artifact_id, tracker, item_ref, issue_key, issue_url, issue_type, last_status, status_fetched_at, created_at, updated_at) \
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        )
+        .bind(Uuid::new_v4().to_string())
+        .bind(&artifact_id)
+        .bind("jira")
+        .bind("")
+        .bind("PROJ-123")
+        .bind("https://acme.atlassian.net/browse/PROJ-123")
+        .bind("Task")
+        .bind("To Do")
+        .bind(None::<String>)
+        .bind(&now)
+        .bind(&now)
+        .execute(&pool)
+        .await
+        .expect("link insert");
+
+        let scripted = vec![
+            Scripted::Succeed(out(vec![tc_test("a", TestStatus::Passed, None)])),
+            Scripted::Succeed(out(vec![tc_test("a", TestStatus::Passed, None)])),
+        ];
+        let runner: Arc<dyn TestRunner> = Arc::new(MultiScriptedRunner::new(scripted));
+        let registry = RunRegistry::new();
+        let factory = fixed_factory(runner);
+        let deps = SandboxDeps {
+            pool: &pool,
+            crypto: Some(&crypto),
+            runner_factory: &factory,
+            registry: &registry,
+        };
+
+        run_flaky(
+            RunRequest {
+                artifact_id,
+                opt_in_confirmed: true,
+                client_run_id: String::new(),
+            },
+            2,
+            &deps,
+        )
+        .await
+        .expect("flaky check runs");
+
+        // Asserts the comment endpoint was hit exactly zero times.
+        mock.assert_async().await;
 
         pool.close().await;
         let _ = std::fs::remove_file(&path);
